@@ -41,10 +41,44 @@ function applyAutoStart(enabled) {
   });
 }
 
-const ZAPRET_VERSION = 'v72.9';
+// Dynamically fetch the latest zapret release URL from GitHub API
+function getLatestZapretUrl() {
+  return new Promise((resolve, reject) => {
+    https.get('https://api.github.com/repos/bol-van/zapret/releases/latest', {
+      headers: { 'User-Agent': 'UnblockPro' }
+    }, (res) => {
+      if (res.statusCode === 302 || res.statusCode === 301) {
+        https.get(res.headers.location, { headers: { 'User-Agent': 'UnblockPro' } }, (r) => {
+          let data = '';
+          r.on('data', chunk => data += chunk);
+          r.on('end', () => {
+            try { resolve(findZipAsset(JSON.parse(data))); } catch (e) { reject(e); }
+          });
+        }).on('error', reject);
+        return;
+      }
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve(findZipAsset(JSON.parse(data))); } catch (e) { reject(e); }
+      });
+    }).on('error', reject);
+  });
+}
 
-// Both platforms use the same full zapret archive (no separate Windows build)
-const DOWNLOAD_URL = `https://github.com/bol-van/zapret/releases/download/${ZAPRET_VERSION}/zapret-${ZAPRET_VERSION}.zip`;
+function findZipAsset(release) {
+  // Find the main zapret-*.zip (not openwrt, not tar.gz)
+  const assets = release.assets || [];
+  const zipAsset = assets.find(a =>
+    a.name.endsWith('.zip') &&
+    !a.name.includes('openwrt') &&
+    a.name.startsWith('zapret-')
+  );
+  if (zipAsset) return zipAsset.browser_download_url;
+  // Fallback: construct URL from tag name
+  const tag = release.tag_name;
+  return `https://github.com/bol-van/zapret/releases/download/${tag}/zapret-${tag}.zip`;
+}
 
 function getResourcePath() {
   if (isDev) {
@@ -255,13 +289,16 @@ async function downloadAndExtractBinaries() {
       throw new Error(`Unsupported platform: ${process.platform}`);
     }
     
+    // Get latest zapret release URL dynamically
+    const downloadUrl = await getLatestZapretUrl();
+    
     const zipPath = path.join(tempDir, 'zapret.zip');
     
     // Remove stale zip if it exists (Windows file locking)
     try { if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath); } catch (e) {}
     
     // Download
-    await downloadFile(DOWNLOAD_URL, zipPath);
+    await downloadFile(downloadUrl, zipPath);
     
     // Extract
     if (process.platform === 'win32') {
@@ -305,31 +342,32 @@ async function downloadAndExtractBinaries() {
     } else if (process.platform === 'darwin') {
       execSync(`unzip -o "${zipPath}" -d "${tempDir}"`, { stdio: 'pipe' });
       
-      // For macOS, the release archive contains prebuilt binaries
-      const zapretDir = path.join(tempDir, `zapret-${ZAPRET_VERSION}`);
+      // Find the zapret-* directory dynamically (version-independent)
+      const zapretDirs = fs.readdirSync(tempDir).filter(f => 
+        f.startsWith('zapret-') && fs.statSync(path.join(tempDir, f)).isDirectory()
+      );
+      const zapretDir = zapretDirs.length > 0 
+        ? path.join(tempDir, zapretDirs[0]) 
+        : tempDir;
       
-      // Try multiple possible binary locations
-      const possiblePaths = [
-        // Official release locations
-        path.join(zapretDir, 'binaries', 'mach-o', 'tpws'),
-        path.join(zapretDir, 'binaries', 'macos', 'tpws'),
-        path.join(zapretDir, 'binaries', `mach-o-${process.arch === 'arm64' ? 'arm64' : 'x86_64'}`, 'tpws'),
-        // FreeBSD binaries might work
-        path.join(zapretDir, 'binaries', 'freebsd-x64', 'tpws'),
-      ];
-      
+      // Find tpws binary dynamically via recursive search
+      const possiblePaths = [];
       let found = false;
       
-      // Check available architectures
       const binariesDir = path.join(zapretDir, 'binaries');
       if (fs.existsSync(binariesDir)) {
         const archs = fs.readdirSync(binariesDir);
-        
-        // Try each available architecture
-        for (const arch of archs) {
+        // Prioritize current architecture
+        const archName = process.arch === 'arm64' ? 'arm64' : 'x86_64';
+        const sorted = archs.sort((a, b) => {
+          const aMatch = a.includes(archName) || a.includes('mach') ? -1 : 1;
+          const bMatch = b.includes(archName) || b.includes('mach') ? -1 : 1;
+          return aMatch - bMatch;
+        });
+        for (const arch of sorted) {
           const tpwsPath = path.join(binariesDir, arch, 'tpws');
           if (fs.existsSync(tpwsPath)) {
-            possiblePaths.unshift(tpwsPath);
+            possiblePaths.push(tpwsPath);
           }
         }
       }
