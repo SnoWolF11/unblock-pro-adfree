@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <title>UnblockPro</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Title bar -->
+    <div class="title-bar" id="titleBar">
+      <div class="title-text">
+        <span class="logo">U</span>
+        UnblockPro
+      </div>
+      <div class="window-controls">
+        <button class="window-btn minimize" id="minimizeBtn" title="Свернуть">
+          <svg width="12" height="12" viewBox="0 0 12 12">
+            <rect y="5" width="12" height="2" fill="currentColor"/>
+          </svg>
+        </button>
+        <button class="window-btn close" id="closeBtn" title="Закрыть">
+          <svg width="12" height="12" viewBox="0 0 12 12">
+            <path d="M1 1L11 11M11 1L1 11" stroke="currentColor" stroke-width="2"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Main content -->
+    <div class="main-content">
+      <!-- Status section -->
+      <div class="status-section">
+        <div class="status-indicator" id="statusIndicator">
+          <div class="status-ring">
+            <div class="status-dot"></div>
+          </div>
+          <div class="status-pulse"></div>
+        </div>
+        <div class="status-text" id="statusText">Отключено</div>
+        <div class="status-strategy" id="strategyText"></div>
+      </div>
+
+      <!-- Download progress -->
+      <div class="download-section" id="downloadSection" style="display: none;">
+        <div class="download-text" id="downloadText">Скачивание бинарников...</div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="download-percent" id="downloadPercent">0%</div>
+      </div>
+
+      <!-- Connect button -->
+      <button class="connect-btn" id="connectBtn">
+        <span class="btn-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L12 22M12 2L5 9M12 2L19 9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="btn-text">Подключить</span>
+      </button>
+
+      <!-- Settings -->
+      <div class="settings-card">
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-label">Автозапуск</span>
+            <span class="setting-desc">Запускать при старте системы</span>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="autostartToggle">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-label">Автоподключение</span>
+            <span class="setting-desc">Подключаться при запуске</span>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="autoconnectToggle">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card">
+        <div class="info-header">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="currentColor" stroke-width="2"/>
+            <path d="M12 16V12M12 8H12.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <span>Как это работает</span>
+        </div>
+        <div class="info-text">
+          Приложение автоматически находит рабочую стратегию обхода DPI для вашего провайдера и разблокирует Discord, YouTube и другие сервисы.
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <div class="system-info" id="systemInfo">
+        <span class="platform-badge" id="platformBadge">--</span>
+        <span class="version">v1.0.0</span>
+      </div>
+      <span class="credit">by sonic</span>
+      <div class="binary-status" id="binaryStatus">
+        <span class="binary-dot"></span>
+        <span class="binary-text">Проверка...</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

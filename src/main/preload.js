@@ -1,0 +1,31 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('api', {
+  // Proxy control
+  startProxy: () => ipcRenderer.invoke('start-proxy'),
+  stopProxy: () => ipcRenderer.invoke('stop-proxy'),
+  getStatus: () => ipcRenderer.invoke('get-status'),
+  
+  // Binary download
+  downloadBinaries: () => ipcRenderer.invoke('download-binaries'),
+  
+  // Window controls
+  minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
+  closeWindow: () => ipcRenderer.invoke('close-window'),
+  
+  // System info
+  getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
+  
+  // Settings
+  getSettings: () => ipcRenderer.invoke('get-settings'),
+  setAutoStart: (enabled) => ipcRenderer.invoke('set-auto-start', enabled),
+  setAutoConnect: (enabled) => ipcRenderer.invoke('set-auto-connect', enabled),
+  
+  // Event listeners
+  onStatus: (callback) => {
+    ipcRenderer.on('status', (event, data) => callback(data));
+  },
+  onDownloadProgress: (callback) => {
+    ipcRenderer.on('download-progress', (event, data) => callback(data));
+  }
+});

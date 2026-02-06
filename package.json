@@ -1,0 +1,93 @@
+{
+  "name": "unblock-pro",
+  "version": "1.0.0",
+  "description": "Обход блокировок Discord и YouTube в России — автоматический DPI bypass для macOS и Windows",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "build:all": "electron-builder --mac --win",
+    "download-binaries": "node scripts/download-binaries.js"
+  },
+  "keywords": [
+    "discord",
+    "youtube",
+    "dpi",
+    "bypass",
+    "unblock",
+    "zapret",
+    "russia",
+    "censorship",
+    "proxy",
+    "vpn-alternative",
+    "anti-dpi",
+    "discord-unblock",
+    "youtube-unblock"
+  ],
+  "author": "sonic",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aspect-build/unblock-pro"
+  },
+  "devDependencies": {
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "sudo-prompt": "^9.2.1"
+  },
+  "build": {
+    "appId": "com.sonic.unblockpro",
+    "productName": "UnblockPro",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "bin/${platform}",
+        "to": "bin",
+        "filter": ["**/*"]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "icon": "assets/icon.icns",
+      "target": [
+        { "target": "dmg", "arch": ["universal"] },
+        { "target": "zip", "arch": ["universal"] }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "title": "UnblockPro",
+      "artifactName": "UnblockPro-${version}-mac.${ext}"
+    },
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": true,
+      "artifactName": "UnblockPro-${version}-win-setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "UnblockPro-${version}-win-portable.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "releaseType": "release"
+    }
+  }
+}
