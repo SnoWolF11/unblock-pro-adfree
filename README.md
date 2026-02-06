@@ -17,12 +17,11 @@
 
 ## Скачать
 
-| Платформа | Тип | Ссылка |
-|-----------|-----|--------|
-| **macOS** | DMG (установщик) | [UnblockPro-mac.dmg](https://github.com/by-sonic/unblock-pro/releases/latest) |
-| **macOS** | ZIP (портативная) | [UnblockPro-mac.zip](https://github.com/by-sonic/unblock-pro/releases/latest) |
-| **Windows** | Установщик | [UnblockPro-win-setup.exe](https://github.com/by-sonic/unblock-pro/releases/latest) |
-| **Windows** | Портативная | [UnblockPro-win-portable.exe](https://github.com/by-sonic/unblock-pro/releases/latest) |
+| Платформа | Файл | Описание |
+|-----------|------|----------|
+| **macOS** (Intel + Apple Silicon) | [UnblockPro-mac.zip](https://github.com/by-sonic/unblock-pro/releases/latest) | Распаковать → перетащить в Программы |
+| **Windows** | [UnblockPro-win-setup.exe](https://github.com/by-sonic/unblock-pro/releases/latest) | Установщик |
+| **Windows** | [UnblockPro-win-portable.exe](https://github.com/by-sonic/unblock-pro/releases/latest) | Портативная версия (без установки) |
 
 > Перейдите в [Releases](https://github.com/by-sonic/unblock-pro/releases/latest) и скачайте версию для вашей ОС
 
@@ -62,9 +61,9 @@ UnblockPro использует технологию [zapret](https://github.com
 
 ### macOS
 
-1. Скачайте `.dmg` или `.zip` из [Releases](https://github.com/by-sonic/unblock-pro/releases/latest)
-2. Если `.dmg` — откройте и перетащите UnblockPro в «Программы»
-3. **Снимите блокировку Gatekeeper** (обязательно при первом запуске):
+1. Скачайте `UnblockPro-*-mac.zip` из [Releases](https://github.com/by-sonic/unblock-pro/releases/latest)
+2. Распакуйте ZIP и перетащите `UnblockPro.app` в папку «Программы»
+3. **Откройте Терминал** и выполните команду:
 
 ```bash
 xattr -cr /Applications/UnblockPro.app
@@ -72,7 +71,7 @@ xattr -cr /Applications/UnblockPro.app
 
 4. Запустите приложение и нажмите «Подключить»
 
-> **Почему нужна команда?** macOS блокирует приложения без платной подписи Apple Developer ($99/год). Команда `xattr -cr` снимает карантинный флаг — это безопасно, код проекта полностью открыт.
+> **Зачем нужна команда?** macOS блокирует приложения без платной подписи Apple Developer ($99/год). Команда `xattr -cr` снимает карантинный флаг — это безопасно, код проекта полностью открыт. Работает на Intel и Apple Silicon (M1/M2/M3).
 
 ### Windows
 

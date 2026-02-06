@@ -20,11 +20,6 @@ jobs:
           node-version: 20
           cache: 'npm'
       
-      - name: Setup Python (for DMG)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      
       - name: Install dependencies
         run: npm ci
       
@@ -40,9 +35,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mac-build
-          path: |
-            dist/*.dmg
-            dist/*.zip
+          path: dist/*.zip
           retention-days: 5
 
   build-windows:
@@ -72,8 +65,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: win-build
-          path: |
-            dist/*.exe
+          path: dist/*.exe
           retention-days: 5
 
   release:
@@ -105,17 +97,16 @@ jobs:
             
             | Платформа | Файл | Описание |
             |-----------|------|----------|
-            | macOS | `UnblockPro-*-mac.dmg` | Установщик для macOS |
-            | macOS | `UnblockPro-*-mac.zip` | Портативная версия для macOS |
-            | Windows | `UnblockPro-*-win-setup.exe` | Установщик для Windows |
-            | Windows | `UnblockPro-*-win-portable.exe` | Портативная версия для Windows |
+            | **macOS** (Intel + Apple Silicon) | `UnblockPro-*-mac.zip` | Распаковать и запустить |
+            | **Windows** | `UnblockPro-*-win-setup.exe` | Установщик |
+            | **Windows** | `UnblockPro-*-win-portable.exe` | Портативная версия |
             
-            ### Что нового
+            ### macOS — первый запуск
             
-            - Автоматический подбор стратегии обхода DPI
-            - Поддержка macOS и Windows
-            - Автозапуск и автоподключение
-            - Безопасная очистка прокси-настроек
+            После скачивания выполните в Терминале:
+            ```
+            xattr -cr /Applications/UnblockPro.app
+            ```
             
             ---
             **by sonic**
