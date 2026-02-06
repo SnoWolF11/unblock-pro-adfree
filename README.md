@@ -10,10 +10,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/by-sonic/unblock-pro/releases/latest"><img src="https://img.shields.io/badge/version-v1.0.0-blue?style=for-the-badge" alt="Version"></a>
-  <a href="https://github.com/by-sonic/unblock-pro/releases/latest"><img src="https://img.shields.io/badge/download-Mac%20%7C%20Win-green?style=for-the-badge" alt="Download"></a>
-  <a href="https://github.com/by-sonic/unblock-pro/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-purple?style=for-the-badge" alt="License"></a>
-  <img src="https://img.shields.io/badge/electron-28-blue?style=for-the-badge&logo=electron&logoColor=white" alt="Electron">
+  <a href="https://github.com/by-sonic/unblock-pro/releases/latest"><img src="https://img.shields.io/github/v/release/by-sonic/unblock-pro?style=for-the-badge&color=blue&label=version" alt="Version"></a>
+  <a href="https://github.com/by-sonic/unblock-pro/releases/latest"><img src="https://img.shields.io/github/downloads/by-sonic/unblock-pro/total?style=for-the-badge&color=green&label=downloads" alt="Downloads"></a>
+  <a href="https://github.com/by-sonic/unblock-pro/blob/main/LICENSE"><img src="https://img.shields.io/github/license/by-sonic/unblock-pro?style=for-the-badge&color=purple" alt="License"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue?style=for-the-badge" alt="Platform">
 </p>
 
 ---
