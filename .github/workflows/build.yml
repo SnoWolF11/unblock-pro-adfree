@@ -20,6 +20,11 @@ jobs:
           node-version: 20
           cache: 'npm'
       
+      - name: Setup Python (for DMG)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
       - name: Install dependencies
         run: npm ci
       
