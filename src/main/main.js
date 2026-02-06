@@ -113,30 +113,55 @@ function getBinaryPath() {
 // DPI bypass strategies to try (ordered by success rate)
 const STRATEGIES = {
   darwin: [
-    // Strategy 1: Split + disorder (most common)
+    // Strategy 1: Split + disorder (most common, works on most ISPs)
     {
       name: 'split+disorder',
       args: ['--port', '1080', '--socks', '--split-pos=1', '--disorder', '--hostcase']
     },
-    // Strategy 2: Split at TLS position
+    // Strategy 2: Split at TLS + midsld
     {
       name: 'split-tls',
       args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder=tls', '--hostcase']
     },
-    // Strategy 3: Method EOL
+    // Strategy 3: Split at position 2 + disorder
+    {
+      name: 'split2+disorder',
+      args: ['--port', '1080', '--socks', '--split-pos=2', '--disorder', '--hostcase']
+    },
+    // Strategy 4: Method EOL
     {
       name: 'methodeol',
       args: ['--port', '1080', '--socks', '--methodeol', '--split-pos=1', '--hostcase']
     },
-    // Strategy 4: OOB byte
+    // Strategy 5: OOB byte
     {
       name: 'oob',
       args: ['--port', '1080', '--socks', '--oob', '--split-pos=1', '--disorder']
     },
-    // Strategy 5: All combined
+    // Strategy 6: tlsrec + split
+    {
+      name: 'tlsrec+split',
+      args: ['--port', '1080', '--socks', '--tlsrec=sni', '--split-pos=1', '--disorder']
+    },
+    // Strategy 7: Split at SNI middle + hostdot
+    {
+      name: 'hostdot+split',
+      args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder', '--hostdot']
+    },
+    // Strategy 8: All combined
     {
       name: 'combined',
       args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder', '--hostcase', '--methodeol']
+    },
+    // Strategy 9: Minimal — just split (for strict DPI)
+    {
+      name: 'split-only',
+      args: ['--port', '1080', '--socks', '--split-pos=1']
+    },
+    // Strategy 10: OOB + methodeol + disorder (aggressive)
+    {
+      name: 'aggressive',
+      args: ['--port', '1080', '--socks', '--oob', '--methodeol', '--split-pos=1,midsld', '--disorder', '--hostcase']
     }
   ],
   win32: [
@@ -357,11 +382,10 @@ async function downloadAndExtractBinaries() {
       const binariesDir = path.join(zapretDir, 'binaries');
       if (fs.existsSync(binariesDir)) {
         const archs = fs.readdirSync(binariesDir);
-        // Prioritize current architecture
-        const archName = process.arch === 'arm64' ? 'arm64' : 'x86_64';
+        // Prioritize macOS binary (mac64 = universal arm64+x86_64)
         const sorted = archs.sort((a, b) => {
-          const aMatch = a.includes(archName) || a.includes('mach') ? -1 : 1;
-          const bMatch = b.includes(archName) || b.includes('mach') ? -1 : 1;
+          const aMatch = a.includes('mac') || a.includes('mach') || a.includes('darwin') ? -1 : 1;
+          const bMatch = b.includes('mac') || b.includes('mach') || b.includes('darwin') ? -1 : 1;
           return aMatch - bMatch;
         });
         for (const arch of sorted) {
@@ -478,20 +502,36 @@ function disableSystemProxy() {
   proxyEnabledServices = [];
 }
 
-function testProxyConnection(port = 1080, timeoutSec = 7) {
+function testSingleConnection(port, timeoutSec, url) {
   return new Promise((resolve) => {
-    // Test Discord API through the SOCKS proxy — validates DPI bypass end-to-end
     exec(
-      `curl --socks5-hostname 127.0.0.1:${port} --connect-timeout ${timeoutSec} -s -o /dev/null -w "%{http_code}" https://discord.com/api/v10/gateway`,
-      { timeout: (timeoutSec + 3) * 1000 },
+      `curl --socks5-hostname 127.0.0.1:${port} --connect-timeout ${timeoutSec} -s -o /dev/null -w "%{http_code}" ${url}`,
+      { timeout: (timeoutSec + 5) * 1000 },
       (error, stdout) => {
         if (error) { resolve(false); return; }
         const code = parseInt(stdout.trim(), 10);
-        // 200 = OK, 401 = Unauthorized (expected without token), both mean connection worked
         resolve(code > 0 && code < 500);
       }
     );
   });
+}
+
+async function testProxyConnection(port = 1080, timeoutSec = 10) {
+  // Test multiple endpoints — some may be blocked differently
+  const endpoints = [
+    'https://discord.com/api/v10/gateway',
+    'https://www.youtube.com/',
+    'https://clients3.google.com/generate_204'
+  ];
+  
+  // Try each endpoint, succeed on first working one
+  for (const url of endpoints) {
+    const works = await testSingleConnection(port, timeoutSec, url);
+    if (works) return true;
+  }
+  
+  // Retry first endpoint once more (network can be flaky)
+  return await testSingleConnection(port, timeoutSec, endpoints[0]);
 }
 
 // ============= PROXY CONTROL =============
@@ -553,17 +593,34 @@ async function startProxy() {
         });
         
         // Wait for tpws to start listening
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise(resolve => setTimeout(resolve, 2000));
         
         if (!proxyProcess || proxyProcess.killed || proxyProcess.exitCode !== null) {
           continue; // Process died, try next strategy
+        }
+        
+        // Quick check: verify tpws is actually listening on the port
+        const portOpen = await new Promise((resolve) => {
+          const net = require('net');
+          const socket = new net.Socket();
+          socket.setTimeout(2000);
+          socket.on('connect', () => { socket.destroy(); resolve(true); });
+          socket.on('error', () => resolve(false));
+          socket.on('timeout', () => { socket.destroy(); resolve(false); });
+          socket.connect(1080, '127.0.0.1');
+        });
+        
+        if (!portOpen) {
+          try { proxyProcess.kill(); } catch (e) {}
+          proxyProcess = null;
+          continue; // tpws not listening, skip this strategy
         }
         
         // Enable system SOCKS proxy so all traffic goes through tpws
         enableSystemProxy(1080);
         
         // Actually test if connection works through the proxy
-        const works = await testProxyConnection(1080, 7);
+        const works = await testProxyConnection(1080, 10);
         
         if (works) {
           // Strategy verified working
