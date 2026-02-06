@@ -27,7 +27,12 @@ jobs:
         run: mkdir -p bin/darwin
       
       - name: Build macOS
-        run: npm run build:mac
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          retry_wait_seconds: 10
+          command: npm run build:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
@@ -57,7 +62,12 @@ jobs:
         shell: cmd
       
       - name: Build Windows
-        run: npm run build:win
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          retry_wait_seconds: 10
+          command: npm run build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
