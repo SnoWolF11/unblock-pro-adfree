@@ -761,21 +761,35 @@ function testSingleConnection(port, timeoutSec, url) {
 }
 
 async function testProxyConnection(port = 1080, timeoutSec = 10) {
-  // Test multiple endpoints — some may be blocked differently
-  const endpoints = [
+  // Discord app uses gateway + CDN + updater; strategy must work for at least one Discord host
+  const discordEndpoints = [
     'https://discord.com/api/v10/gateway',
+    'https://cdn.discordapp.com/',
+    'https://dl.discordapp.net/apps/linux'
+  ];
+  const otherEndpoints = [
     'https://www.youtube.com/',
     'https://clients3.google.com/generate_204'
   ];
-  
-  // Try each endpoint, succeed on first working one
-  for (const url of endpoints) {
+  const allEndpoints = [...discordEndpoints, ...otherEndpoints];
+
+  let discordOk = false;
+  let anyOk = false;
+  for (const url of allEndpoints) {
     const works = await testSingleConnection(port, timeoutSec, url);
-    if (works) return true;
+    if (works) {
+      anyOk = true;
+      if (discordEndpoints.includes(url)) discordOk = true;
+    }
   }
-  
-  // Retry first endpoint once more (network can be flaky)
-  return await testSingleConnection(port, timeoutSec, endpoints[0]);
+  // Require at least one Discord endpoint so app/updater don't hang
+  if (discordOk && anyOk) return true;
+  // Retry first Discord endpoint once (flaky network)
+  if (anyOk && !discordOk) {
+    const retry = await testSingleConnection(port, timeoutSec, discordEndpoints[0]);
+    if (retry) return true;
+  }
+  return false;
 }
 
 // ============= PROXY CONTROL =============
