@@ -2,6 +2,7 @@ name: Build & Release
 
 on:
   push:
+    branches: [main]
     tags:
       - 'v*'
 
@@ -9,23 +10,66 @@ permissions:
   contents: write
 
 jobs:
-  build-mac:
-    runs-on: macos-latest
+  # На push в main — поднять версию и запушить. На push тега — только задать version.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.outputs.outputs.version }}
+      should_build: ${{ steps.outputs.outputs.should_build }}
     steps:
       - uses: actions/checkout@v4
-      
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
-      
+
+      - name: Bump version or read tag
+        id: outputs
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            npm version patch --no-git-tag-version
+            VERSION=$(node -p "require('./package.json').version")
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add package.json package-lock.json
+            if git diff --staged --quiet; then
+              echo "should_build=false" >> $GITHUB_OUTPUT
+            else
+              git commit -m "chore: bump version to $VERSION [skip ci]"
+              git push origin main
+              echo "should_build=true" >> $GITHUB_OUTPUT
+            fi
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          fi
+
+  build-mac:
+    runs-on: macos-latest
+    needs: [prepare]
+    if: needs.prepare.outputs.should_build == 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref == 'refs/heads/main' && 'main' || github.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Create bin directory
         run: mkdir -p bin/darwin
-      
+
       - name: Build macOS
         uses: nick-fields/retry@v3
         with:
@@ -35,7 +79,7 @@ jobs:
           command: npm run build:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -45,22 +89,26 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
+    needs: [prepare]
+    if: needs.prepare.outputs.should_build == 'true'
     steps:
       - uses: actions/checkout@v4
-      
+        with:
+          ref: ${{ github.ref == 'refs/heads/main' && 'main' || github.ref }}
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Create bin directory
         run: mkdir bin\win32
         shell: cmd
-      
+
       - name: Build Windows
         uses: nick-fields/retry@v3
         with:
@@ -70,7 +118,7 @@ jobs:
           command: npm run build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -79,29 +127,32 @@ jobs:
           retention-days: 5
 
   release:
-    needs: [build-mac, build-windows]
+    needs: [build-mac, build-windows, prepare]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+        with:
+          ref: ${{ github.ref == 'refs/heads/main' && 'main' || github.ref }}
+
       - name: Download macOS artifacts
         uses: actions/download-artifact@v4
         with:
           name: mac-build
           path: artifacts/mac
-      
+
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
           name: win-build
           path: artifacts/win
-      
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: UnblockPro ${{ github.ref_name }}
+          tag_name: v${{ needs.prepare.outputs.version }}
+          name: UnblockPro v${{ needs.prepare.outputs.version }}
           body: |
-            ## UnblockPro ${{ github.ref_name }}
+            ## UnblockPro v${{ needs.prepare.outputs.version }}
             
             ### Скачать
             
