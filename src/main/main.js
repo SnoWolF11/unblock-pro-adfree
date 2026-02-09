@@ -537,23 +537,24 @@ async function downloadAndExtractBinaries() {
     if (process.platform === 'win32') {
       execSync(`powershell -command "Expand-Archive -Path '${zipPath}' -DestinationPath '${tempDir}' -Force"`, { stdio: 'pipe' });
       
-      // Archive structure: zapret-v72.9/binaries/windows-x86_64/winws.exe
-      // Find winws.exe recursively
-      let winwsPath = null;
+      // Archive has windows-x86_64/ (WinDivert64.sys) and windows-x86/ (WinDivert32.sys).
+      // On 64-bit Windows we MUST use x86_64 — otherwise WinDivert64.sys is missing.
+      const candidates = [];
       const findWinws = (dir) => {
         if (!fs.existsSync(dir)) return;
         const files = fs.readdirSync(dir);
         for (const file of files) {
           const fullPath = path.join(dir, file);
           const stat = fs.statSync(fullPath);
-          if (stat.isDirectory()) {
-            findWinws(fullPath);
-          } else if (file === 'winws.exe' && !winwsPath) {
-            winwsPath = fullPath;
-          }
+          if (stat.isDirectory()) findWinws(fullPath);
+          else if (file === 'winws.exe') candidates.push(fullPath);
         }
       };
       findWinws(tempDir);
+      // Prefer path containing x86_64 (64-bit driver)
+      const winwsPath = candidates.find(p => path.dirname(p).toLowerCase().includes('x86_64'))
+        || candidates.find(p => path.dirname(p).toLowerCase().includes('x64'))
+        || candidates[0];
       
       if (winwsPath) {
         fs.copyFileSync(winwsPath, path.join(platformDir, 'winws.exe'));
