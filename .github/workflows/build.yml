@@ -5,6 +5,7 @@ on:
     branches: [main]
     tags:
       - 'v*'
+  workflow_dispatch:  # Ручной запуск: Actions → Build & Release → Run workflow
 
 permissions:
   contents: write
@@ -31,6 +32,7 @@ jobs:
         id: outputs
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            OLD_VERSION=$(node -p "require('./package.json').version")
             npm version patch --no-git-tag-version
             VERSION=$(node -p "require('./package.json').version")
             git config user.name "github-actions[bot]"
@@ -38,12 +40,13 @@ jobs:
             git add package.json package-lock.json
             if git diff --staged --quiet; then
               echo "should_build=false" >> $GITHUB_OUTPUT
+              echo "version=$OLD_VERSION" >> $GITHUB_OUTPUT
             else
               git commit -m "chore: bump version to $VERSION [skip ci]"
               git push origin main
               echo "should_build=true" >> $GITHUB_OUTPUT
+              echo "version=$VERSION" >> $GITHUB_OUTPUT
             fi
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
           else
             echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
             echo "should_build=true" >> $GITHUB_OUTPUT
