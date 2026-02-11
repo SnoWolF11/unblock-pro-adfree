@@ -92,7 +92,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mac-build
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*.yml
+            dist/*.blockmap
           retention-days: 5
 
   build-windows:
@@ -136,7 +139,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: win-build
-          path: dist/*.exe
+          path: |
+            dist/*.exe
+            dist/*.yml
+            dist/*.blockmap
           retention-days: 5
 
   release:
@@ -188,7 +194,7 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            artifacts/mac/*
-            artifacts/win/*
+            artifacts/mac/**/*
+            artifacts/win/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
