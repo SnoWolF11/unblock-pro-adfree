@@ -868,6 +868,19 @@ body {
   font-style: italic;
 }
 
+.tg-link {
+  color: #29b6f6;
+  text-decoration: none;
+  font-style: normal;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.tg-link:hover {
+  color: #4fc3f7;
+  text-decoration: underline;
+}
+
 .binary-status {
   display: flex;
   align-items: center;

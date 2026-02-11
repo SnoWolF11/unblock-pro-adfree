@@ -499,5 +499,11 @@ function handleUpdateDownloadProgress(progress) {
   updateBtn.style.display = 'none';
 }
 
+// Telegram link
+document.getElementById('tgLink')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  window.api.openExternal('https://t.me/bysonicx');
+});
+
 // Start
 init();

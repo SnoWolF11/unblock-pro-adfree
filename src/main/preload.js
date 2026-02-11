@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld('api', {
   getLogs: () => ipcRenderer.invoke('get-logs'),
   clearError: () => ipcRenderer.invoke('clear-error'),
   
+  // External links
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  
   // Event listeners
   onStatus: (callback) => {
     ipcRenderer.on('status', (event, data) => callback(data));

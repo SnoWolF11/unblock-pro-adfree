@@ -232,140 +232,100 @@ const STRATEGIES = {
       args: ['--port', '1080', '--socks', '--disorder']
     }
   ],
-  // Windows strategies based on Flowseal/zapret-discord-youtube
+  // All strategies from Flowseal/zapret-discord-youtube (22k+ stars)
+  // Simplified for UnblockPro (without hostlists/ipsets/pattern files)
+  // Multi-rule format with --filter/--new for proper TCP+UDP+Discord handling
   win32: [
-    // Strategy: general.bat — multisplit seqovl=568 (Flowseal default)
-    {
-      name: 'multisplit-568',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=568',
-        '--dpi-desync-split-pos=1']
-    },
-    // Strategy: general (ALT).bat — fake+fakedsplit with fooling=ts
-    {
-      name: 'fake+fakedsplit-ts',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=fake,fakedsplit', '--dpi-desync-repeats=6',
-        '--dpi-desync-fooling=ts', '--dpi-desync-fakedsplit-pattern=0x00']
-    },
-    // Strategy: general (ALT2).bat — multisplit seqovl=652 pos=2
-    {
-      name: 'multisplit-652',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=652',
-        '--dpi-desync-split-pos=2']
-    },
-    // Strategy: fake+multidisorder (classic)
-    {
-      name: 'fake+multidisorder',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=fake,multidisorder', '--dpi-desync-split-pos=1,midsld',
-        '--dpi-desync-fooling=badseq,md5sig']
-    },
-    // Strategy: multisplit seqovl=681 (for Google/YT)
-    {
-      name: 'multisplit-681',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=681',
-        '--dpi-desync-split-pos=1']
-    },
-    // Strategy: fake with repeats
-    {
-      name: 'fake-repeat6',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=fake', '--dpi-desync-repeats=6',
-        '--dpi-desync-fooling=badseq']
-    },
-    // Strategy: fake+split2 (fallback)
-    {
-      name: 'fake+split2',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=fake,split2', '--dpi-desync-split-pos=1',
-        '--dpi-desync-fooling=badseq']
-    },
-    // Strategy: multidisorder only (simple)
-    {
-      name: 'multidisorder',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=multidisorder', '--dpi-desync-split-pos=1,midsld']
-    },
-    // Strategy: different seqovl values (ISP-specific)
-    {
-      name: 'multisplit-1',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=1',
-        '--dpi-desync-split-pos=1']
-    },
-    {
-      name: 'multisplit-2',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=2',
-        '--dpi-desync-split-pos=2']
-    },
-    {
-      name: 'multisplit-336',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=336',
-        '--dpi-desync-split-pos=1']
-    },
-    // Strategy: fake with TTL manipulation
-    {
-      name: 'fake-ttl3',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=fake', '--dpi-desync-ttl=3',
-        '--dpi-desync-fooling=md5sig']
-    },
-    {
-      name: 'fake-autottl',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=fake', '--dpi-desync-autottl=2',
-        '--dpi-desync-fooling=md5sig']
-    },
-    // Strategy: disorder2 variants
-    {
-      name: 'fake+disorder2',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=fake,disorder2', '--dpi-desync-split-pos=1',
-        '--dpi-desync-fooling=badseq']
-    },
-    {
-      name: 'disorder2+split2',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=disorder2,split2', '--dpi-desync-split-pos=1,midsld']
-    },
-    // Strategy: fakedsplit variants
-    {
-      name: 'fakedsplit-md5sig',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=fake,fakedsplit', '--dpi-desync-repeats=6',
-        '--dpi-desync-fooling=md5sig', '--dpi-desync-fakedsplit-pattern=0x00']
-    },
-    // Strategy: combined TCP+QUIC approaches
-    {
-      name: 'multisplit-midsld',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=2',
-        '--dpi-desync-split-pos=midsld']
-    },
-    {
-      name: 'fake+multisplit',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
-        '--dpi-desync=fake,multisplit', '--dpi-desync-split-seqovl=1',
-        '--dpi-desync-split-pos=1', '--dpi-desync-fooling=badseq']
-    },
-    // Strategy: syndata (last resort)
-    {
-      name: 'syndata',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443',
-        '--dpi-desync=syndata', '--dpi-desync-fake-tls=0x00000000']
-    },
-    // Strategy: syndata with TTL
-    {
-      name: 'syndata+ttl',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443',
-        '--dpi-desync=syndata', '--dpi-desync-fake-tls=0x00000000',
-        '--dpi-desync-ttl=5']
-    }
+    // === ALT9 — hostfakesplit ts,md5sig ===
+    { name: 'ALT9', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=hostfakesplit', '--dpi-desync-repeats=4', '--dpi-desync-fooling=ts,md5sig', '--dpi-desync-hostfakesplit-mod=host=ozon.ru'] },
+    // === ALT3 — fake+hostfakesplit rnd,dupsid ===
+    { name: 'ALT3', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=fake,hostfakesplit', '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru', '--dpi-desync-hostfakesplit-mod=host=ya.ru,altorder=1', '--dpi-desync-fooling=ts'] },
+    // === general — multisplit seqovl=568 (Flowseal default) ===
+    { name: 'general', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=568', '--dpi-desync-split-pos=1'] },
+    // === ALT — fake+fakedsplit ts ===
+    { name: 'ALT', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=fake,fakedsplit', '--dpi-desync-repeats=6', '--dpi-desync-fooling=ts', '--dpi-desync-fakedsplit-pattern=0x00'] },
+    // === ALT2 — multisplit seqovl=652 pos=2 ===
+    { name: 'ALT2', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2'] },
+    // === ALT4 — fake+multisplit badseq ===
+    { name: 'ALT4', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=fake,multisplit', '--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=1000'] },
+    // === ALT5 — syndata+multidisorder (ipv4) ===
+    { name: 'ALT5', args: ['--wf-tcp=443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder'] },
+    // === ALT6 — multisplit seqovl=681 ===
+    { name: 'ALT6', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1'] },
+    // === ALT7 — multisplit pos=2,sniext+1 seqovl=679 ===
+    { name: 'ALT7', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=multisplit', '--dpi-desync-split-pos=2,sniext+1', '--dpi-desync-split-seqovl=679'] },
+    // === ALT8 — fake badseq-increment=2 ===
+    { name: 'ALT8', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=fake', '--dpi-desync-fake-tls-mod=none', '--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2'] },
+    // === ALT10 — fake ts with repeats=6 ===
+    { name: 'ALT10', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=ts', '--dpi-desync-fake-tls-mod=none'] },
+    // === ALT11 — fake+multisplit seqovl=664 ts repeats=8 ===
+    { name: 'ALT11', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=11', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=fake,multisplit', '--dpi-desync-split-seqovl=664', '--dpi-desync-split-pos=1', '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8'] },
+    // === SIMPLE FAKE — fake ts repeats=6 ===
+    { name: 'SIMPLE FAKE', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=ts'] },
+    // === FAKE TLS AUTO — fake+multidisorder badseq rnd,dupsid ===
+    { name: 'FAKE TLS AUTO', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=11', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=fake,multidisorder', '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq', '--dpi-desync-fake-tls=0x00000000'] },
+    // === Extra: fake+multidisorder badseq+md5sig ===
+    { name: 'fake+multidisorder', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=fake,multidisorder', '--dpi-desync-split-pos=1,midsld', '--dpi-desync-fooling=badseq,md5sig'] },
+    // === Extra: fake+split2 autottl md5sig ===
+    { name: 'fake+split2-autottl', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=fake,split2', '--dpi-desync-autottl=5', '--dpi-desync-repeats=6', '--dpi-desync-fooling=md5sig'] },
+    // === Extra: fakedsplit badseq ===
+    { name: 'fakedsplit-badseq', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=fake,fakedsplit', '--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-fakedsplit-pattern=0x00'] },
+    // === Extra: fakedsplit md5sig ===
+    { name: 'fakedsplit-md5sig', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
+        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+        '--filter-tcp=80,443', '--dpi-desync=fake,fakedsplit', '--dpi-desync-repeats=6', '--dpi-desync-fooling=md5sig', '--dpi-desync-fakedsplit-pattern=0x00'] }
   ]
 };
 
@@ -792,6 +752,217 @@ async function testProxyConnection(port = 1080, timeoutSec = 10) {
   return false;
 }
 
+// ============= DIRECT CONNECTION TEST (Windows) =============
+
+async function testDirectConnection(timeoutSec = 10) {
+  // winws works at driver level — test with direct HTTPS requests (no SOCKS proxy)
+  const testUrls = [
+    'https://discord.com/api/v10/gateway',
+    'https://www.youtube.com/'
+  ];
+  
+  for (const url of testUrls) {
+    const works = await new Promise((resolve) => {
+      try {
+        const urlObj = new URL(url);
+        const req = https.get({
+          hostname: urlObj.hostname,
+          path: urlObj.pathname + urlObj.search,
+          timeout: timeoutSec * 1000,
+          headers: { 'User-Agent': 'Mozilla/5.0 UnblockPro/1.0' }
+        }, (res) => {
+          resolve(res.statusCode > 0 && res.statusCode < 500);
+        });
+        req.on('error', () => resolve(false));
+        req.on('timeout', () => { req.destroy(); resolve(false); });
+      } catch (e) {
+        resolve(false);
+      }
+    });
+    if (works) return true;
+  }
+  return false;
+}
+
+// ============= WINDOWS ELEVATION & MONITORING =============
+
+let winwsMonitorInterval = null;
+
+function isRunningAsAdmin() {
+  if (process.platform !== 'win32') return true;
+  try {
+    execSync('net session', { stdio: 'pipe' });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function startWinwsMonitor() {
+  stopWinwsMonitor();
+  winwsMonitorInterval = setInterval(() => {
+    try {
+      const output = execSync('tasklist /FI "IMAGENAME eq winws.exe" /NH', { encoding: 'utf8', stdio: 'pipe' });
+      if (!output.includes('winws.exe')) {
+        stopWinwsMonitor();
+        if (isConnected) {
+          isConnected = false;
+          const prevStrategy = currentStrategy;
+          currentStrategy = null;
+          connectedSince = null;
+          disconnectReason = 'PROCESS_CRASHED';
+          lastError = 'Процесс обхода завершился неожиданно';
+          lastErrorCode = 'PROCESS_CRASHED';
+          updateTrayMenu();
+          sendLog({ type: 'error', message: `Стратегия ${prevStrategy} прекратила работу` });
+          sendStatus();
+        }
+      }
+    } catch (e) {}
+  }, 5000);
+}
+
+function stopWinwsMonitor() {
+  if (winwsMonitorInterval) {
+    clearInterval(winwsMonitorInterval);
+    winwsMonitorInterval = null;
+  }
+}
+
+async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrategies) {
+  const binDirectory = path.dirname(finalBinaryPath);
+  const tempDir = app.getPath('temp');
+  const resultFile = path.join(tempDir, 'unblock-result.txt');
+  const progressFile = path.join(tempDir, 'unblock-progress.txt');
+  const batchFile = path.join(tempDir, 'unblock-test.bat');
+
+  // Clean old temp files
+  try { fs.unlinkSync(resultFile); } catch(e) {}
+  try { fs.unlinkSync(progressFile); } catch(e) {}
+
+  // Generate batch script that tests all strategies with one UAC prompt
+  let bat = '@echo off\r\n';
+  bat += 'setlocal EnableDelayedExpansion\r\n';
+  bat += `set "RESULT=${resultFile}"\r\n`;
+  bat += `set "PROGRESS=${progressFile}"\r\n`;
+  bat += 'taskkill /F /IM winws.exe >nul 2>&1\r\n';
+  bat += 'timeout /t 1 /nobreak >nul\r\n';
+  bat += '\r\n';
+
+  for (let i = 0; i < strategies.length; i++) {
+    const s = strategies[i];
+    const args = s.args.join(' ');
+    bat += `:: Strategy ${i + 1}: ${s.name}\r\n`;
+    bat += `echo ${i + 1}/${totalStrategies}:${s.name}> "%PROGRESS%"\r\n`;
+    bat += `cd /d "${binDirectory}"\r\n`;
+    bat += `start "" /b "${finalBinaryPath}" ${args}\r\n`;
+    bat += 'timeout /t 3 /nobreak >nul\r\n';
+    // Test connectivity with PowerShell
+    bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://discord.com/api/v10/gateway' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
+    bat += 'if !errorlevel! equ 0 (\r\n';
+    bat += `  echo WORKS:${s.name}> "%RESULT%"\r\n`;
+    bat += '  goto :end\r\n';
+    bat += ')\r\n';
+    // Also test YouTube as fallback
+    bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://www.youtube.com/' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
+    bat += 'if !errorlevel! equ 0 (\r\n';
+    bat += `  echo WORKS:${s.name}> "%RESULT%"\r\n`;
+    bat += '  goto :end\r\n';
+    bat += ')\r\n';
+    bat += 'taskkill /F /IM winws.exe >nul 2>&1\r\n';
+    bat += 'timeout /t 1 /nobreak >nul\r\n';
+    bat += '\r\n';
+  }
+
+  bat += 'echo NONE> "%RESULT%"\r\n';
+  bat += 'taskkill /F /IM winws.exe >nul 2>&1\r\n';
+  bat += 'goto :realend\r\n';
+  bat += ':end\r\n';
+  bat += ':: Strategy found — winws stays running\r\n';
+  bat += ':realend\r\n';
+  bat += 'endlocal\r\n';
+
+  fs.writeFileSync(batchFile, bat, { encoding: 'utf8' });
+
+  // Poll progress file to update UI
+  let lastProgress = '';
+  const progressInterval = setInterval(() => {
+    try {
+      const content = fs.readFileSync(progressFile, 'utf8').trim();
+      if (content && content !== lastProgress) {
+        lastProgress = content;
+        const match = content.match(/^(\d+)\/(\d+):(.+)$/);
+        if (match) {
+          const current = parseInt(match[1]);
+          const total = parseInt(match[2]);
+          const name = match[3];
+          strategyProgress = { current, total, name };
+          sendStatus({ searching: true });
+          sendLog({ type: 'info', message: `[${current}/${total}] Тестирование: ${name}` });
+        }
+      }
+    } catch (e) {}
+  }, 1500);
+
+  sendLog({ type: 'info', message: 'Запуск с повышением прав (UAC)...' });
+
+  // Run elevated batch — single UAC dialog for all strategies
+  const result = await new Promise((resolve) => {
+    sudo.exec(`"${batchFile}"`, { name: 'UnblockPro' }, (error) => {
+      clearInterval(progressInterval);
+
+      // Permission denied?
+      if (error && error.message && (
+        error.message.includes('canceled') ||
+        error.message.includes('cancelled') ||
+        error.message.includes('User did not grant')
+      )) {
+        resolve({ success: false, error: 'Требуются права администратора для обхода DPI', errorCode: 'PERMISSION_DENIED' });
+        return;
+      }
+
+      // Read result file
+      try {
+        const resultContent = fs.readFileSync(resultFile, 'utf8').trim();
+        if (resultContent.startsWith('WORKS:')) {
+          const strategyName = resultContent.substring(6).trim();
+          resolve({ success: true, strategy: strategyName });
+        } else {
+          resolve({ success: false, error: 'Ни одна стратегия не сработала', errorCode: 'ALL_STRATEGIES_FAILED' });
+        }
+      } catch (e) {
+        resolve({ success: false, error: error ? error.message : 'Не удалось прочитать результат', errorCode: 'READ_ERROR' });
+      }
+    });
+  });
+
+  // Cleanup temp files
+  try { fs.unlinkSync(batchFile); } catch(e) {}
+  try { fs.unlinkSync(progressFile); } catch(e) {}
+  try { fs.unlinkSync(resultFile); } catch(e) {}
+
+  if (result.success) {
+    isConnected = true;
+    currentStrategy = result.strategy;
+    connectedSince = Date.now();
+    strategyProgress = null;
+    clearError();
+    updateTrayMenu();
+    sendLog({ type: 'success', message: `Стратегия ${result.strategy} работает!` });
+    sendStatus({ searching: false });
+    // Monitor winws.exe since we can't track the elevated process directly
+    startWinwsMonitor();
+    return { success: true, strategy: result.strategy };
+  } else {
+    lastError = result.error;
+    lastErrorCode = result.errorCode || 'ALL_STRATEGIES_FAILED';
+    strategyProgress = null;
+    sendLog({ type: 'error', message: result.error });
+    sendStatus({ searching: false });
+    return { success: false, error: result.error };
+  }
+}
+
 // ============= PROXY CONTROL =============
 
 async function startProxy() {
@@ -851,7 +1022,50 @@ async function startProxy() {
   const totalStrategies = strategies.length;
   
   sendLog({ type: 'info', message: `Начинаю перебор ${totalStrategies} стратегий...` });
-  
+
+  // Windows: check admin rights, kill existing winws.exe, verify WinDivert
+  if (process.platform === 'win32') {
+    // If not running as admin, use elevated batch approach (single UAC prompt)
+    if (!isRunningAsAdmin()) {
+      sendLog({ type: 'info', message: 'Нет прав администратора — запуск через UAC...' });
+      return await startProxyWindowsElevated(finalBinaryPath, strategies, totalStrategies);
+    }
+
+    try {
+      execSync('taskkill /F /IM winws.exe', { stdio: 'pipe' });
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      sendLog({ type: 'info', message: 'Завершён предыдущий процесс winws.exe' });
+    } catch (e) {
+      // No existing process — that's fine
+    }
+
+    // Pre-flight check: verify WinDivert driver files exist
+    const binDirectory = path.dirname(finalBinaryPath);
+    const driverFile = path.join(binDirectory, 'WinDivert64.sys');
+    const dllFile = path.join(binDirectory, 'WinDivert.dll');
+    if (!fs.existsSync(driverFile) || !fs.existsSync(dllFile)) {
+      sendLog({ type: 'warning', message: 'WinDivert файлы отсутствуют, перекачиваю бинарники...' });
+      try { fs.unlinkSync(finalBinaryPath); } catch(e) {}
+      const dlResult = await downloadAndExtractBinaries();
+      if (!dlResult.success) {
+        lastError = 'Не удалось скачать WinDivert. Добавьте папку приложения в исключения антивируса.';
+        lastErrorCode = 'WINDIVERT_MISSING';
+        sendLog({ type: 'error', message: lastError });
+        strategyProgress = null;
+        sendStatus({ searching: false });
+        return { success: false, error: lastError };
+      }
+      if (!fs.existsSync(driverFile)) {
+        lastError = 'WinDivert64.sys удалён антивирусом. Добавьте папку в исключения Windows Defender:\n' + binDirectory;
+        lastErrorCode = 'WINDIVERT_BLOCKED';
+        sendLog({ type: 'error', message: lastError });
+        strategyProgress = null;
+        sendStatus({ searching: false });
+        return { success: false, error: lastError };
+      }
+    }
+  }
+
   for (let i = 0; i < strategies.length; i++) {
     const strategy = strategies[i];
     
@@ -953,103 +1167,85 @@ async function startProxy() {
         // Windows - winws.exe intercepts traffic at driver level via WinDivert
         // No proxy configuration needed — it modifies packets in-flight
         const binDirectory = path.dirname(finalBinaryPath);
+
+        // Kill any leftover winws from previous strategy iteration
+        try { execSync('taskkill /F /IM winws.exe', { stdio: 'pipe' }); } catch(e) {}
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Start winws.exe directly (app runs as admin via manifest)
+        let spawnError = null;
+        let winwsStderr = '';
         
-        // Pre-flight check: verify WinDivert driver files exist
-        const driverFile = path.join(binDirectory, 'WinDivert64.sys');
-        const dllFile = path.join(binDirectory, 'WinDivert.dll');
-        if (!fs.existsSync(driverFile) || !fs.existsSync(dllFile)) {
-          sendLog({ type: 'warning', message: 'WinDivert файлы отсутствуют, перекачиваю бинарники...' });
-          // Force re-download — files may have been deleted by antivirus
-          try { fs.unlinkSync(finalBinaryPath); } catch(e) {}
-          const dlResult = await downloadAndExtractBinaries();
-          if (!dlResult.success) {
-            lastError = 'Не удалось скачать WinDivert. Добавьте папку приложения в исключения антивируса.';
-            lastErrorCode = 'WINDIVERT_MISSING';
-            sendLog({ type: 'error', message: lastError });
-            strategyProgress = null;
-            sendStatus({ searching: false });
-            return { success: false, error: lastError };
-          }
-          // Check again after re-download
-          if (!fs.existsSync(driverFile)) {
-            lastError = 'WinDivert64.sys удалён антивирусом. Добавьте папку в исключения Windows Defender:\n' + binDirectory;
-            lastErrorCode = 'WINDIVERT_BLOCKED';
-            sendLog({ type: 'error', message: lastError });
-            strategyProgress = null;
-            sendStatus({ searching: false });
-            return { success: false, error: lastError };
-          }
-        }
-        
-        // cd to binary directory so WinDivert can find its driver files
-        const command = `cd /d "${binDirectory}" && "${finalBinaryPath}" ${strategy.args.join(' ')}`;
-        
-        return new Promise((resolve) => {
-          sudo.exec(command, { name: 'UnblockPro' }, (error) => {
-            if (error) {
-              const isPermDenied = error.message && (
-                error.message.includes('canceled') || 
-                error.message.includes('cancelled') || 
-                error.message.includes('User did not grant')
-              );
-              const isWinDivertError = error.message && (
-                error.message.includes('windivert') ||
-                error.message.includes('cannot find the file')
-              );
-              if (isPermDenied) {
-                lastError = 'Требуются права администратора для обхода DPI';
-                lastErrorCode = 'PERMISSION_DENIED';
-              } else if (isWinDivertError) {
-                lastError = 'WinDivert не может загрузить драйвер. Добавьте папку в исключения Windows Defender:\n' + binDirectory;
-                lastErrorCode = 'WINDIVERT_BLOCKED';
-              } else {
-                lastError = `Ошибка запуска: ${error.message}`;
-                lastErrorCode = 'PROCESS_CRASHED';
-              }
-              sendLog({ type: 'error', message: lastError });
-              strategyProgress = null;
-              sendStatus({ searching: false });
-              resolve({ success: false, error: lastError });
-              return;
-            }
-            
-            isConnected = true;
-            currentStrategy = strategy.name;
-            connectedSince = Date.now();
-            strategyProgress = null;
-            clearError();
-            updateTrayMenu();
-            sendLog({ type: 'success', message: `Стратегия ${strategy.name} работает!` });
-            sendStatus({ searching: false });
-            resolve({ success: true, strategy: strategy.name });
+        try {
+          proxyProcess = spawn(finalBinaryPath, strategy.args, {
+            cwd: binDirectory,
+            detached: false,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true
           });
+        } catch (e) {
+          sendLog({ type: 'warning', message: `${strategy.name}: не удалось запустить — ${e.message}` });
+          proxyProcess = null;
+          continue;
+        }
+
+        proxyProcess.stderr.on('data', (data) => { winwsStderr += data.toString(); });
+        proxyProcess.stdout.on('data', () => {});
+        
+        let earlyExitCode = null;
+        proxyProcess.on('error', (err) => { spawnError = err; });
+        proxyProcess.on('close', (code) => { earlyExitCode = code; });
+
+        // Wait for winws to start up and set up WinDivert filters
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        if (spawnError || earlyExitCode !== null || !proxyProcess || proxyProcess.killed) {
+          const errMsg = spawnError ? spawnError.message : winwsStderr.trim() || `код выхода: ${earlyExitCode}`;
+          sendLog({ type: 'warning', message: `${strategy.name}: процесс не запустился — ${errMsg}` });
+          proxyProcess = null;
+          continue;
+        }
+
+        // winws is running — test if DPI bypass actually works
+        const works = await testDirectConnection(10);
+        
+        if (works) {
+          // Strategy verified working!
+          isConnected = true;
+          currentStrategy = strategy.name;
+          connectedSince = Date.now();
+          strategyProgress = null;
+          clearError();
           
-          // Also try direct spawn for process tracking
-          try {
-            proxyProcess = spawn(finalBinaryPath, strategy.args, {
-              cwd: binDirectory,
-              detached: false,
-              stdio: ['ignore', 'pipe', 'pipe'],
-              windowsHide: true
-            });
-            
-            proxyProcess.on('close', (code) => {
-              proxyProcess = null;
-              if (isConnected) {
-                isConnected = false;
-                const prevStrategy = currentStrategy;
-                currentStrategy = null;
-                connectedSince = null;
-                disconnectReason = 'PROCESS_CRASHED';
-                lastError = `Процесс обхода завершился неожиданно (код: ${code})`;
-                lastErrorCode = 'PROCESS_CRASHED';
-                updateTrayMenu();
-                sendLog({ type: 'error', message: `Стратегия ${prevStrategy} прекратила работу` });
-                sendStatus();
-              }
-            });
-          } catch (e) {}
-        });
+          // Set up close handler for the connected process
+          proxyProcess.removeAllListeners('close');
+          proxyProcess.on('close', (code) => {
+            proxyProcess = null;
+            if (isConnected) {
+              isConnected = false;
+              const prevStrategy = currentStrategy;
+              currentStrategy = null;
+              connectedSince = null;
+              disconnectReason = 'PROCESS_CRASHED';
+              lastError = `Процесс обхода завершился неожиданно (код: ${code})`;
+              lastErrorCode = 'PROCESS_CRASHED';
+              updateTrayMenu();
+              sendLog({ type: 'error', message: `Стратегия ${prevStrategy} прекратила работу` });
+              sendStatus();
+            }
+          });
+
+          updateTrayMenu();
+          sendLog({ type: 'success', message: `Стратегия ${strategy.name} работает!` });
+          sendStatus({ searching: false });
+          return { success: true, strategy: strategy.name };
+        } else {
+          // Strategy didn't work — kill it and try next
+          sendLog({ type: 'warning', message: `${strategy.name}: не прошла проверку соединения` });
+          try { proxyProcess.kill(); } catch(e) {}
+          proxyProcess = null;
+          continue;
+        }
       }
       
     } catch (error) {
@@ -1071,16 +1267,24 @@ function stopProxy() {
   // Disable system proxy FIRST (before killing tpws)
   disableSystemProxy();
   
+  // Stop winws monitor if running
+  stopWinwsMonitor();
+  
   if (proxyProcess) {
     try { proxyProcess.kill('SIGTERM'); } catch (e) {}
     proxyProcess = null;
   }
 
-  // Kill all related processes
+  // Kill all related processes synchronously for reliable cleanup
   if (process.platform === 'darwin') {
-    exec('pkill -f tpws 2>/dev/null', () => {});
+    try { execSync('pkill -f tpws 2>/dev/null', { stdio: 'pipe' }); } catch (e) {}
   } else if (process.platform === 'win32') {
-    exec('taskkill /F /IM winws.exe 2>nul', () => {});
+    try {
+      execSync('taskkill /F /IM winws.exe', { stdio: 'pipe' });
+    } catch (e) {
+      // If direct kill fails (elevated process), try via sudo
+      try { sudo.exec('taskkill /F /IM winws.exe', { name: 'UnblockPro' }, () => {}); } catch (e2) {}
+    }
   }
 
   isConnected = false;
@@ -1244,6 +1448,13 @@ ipcMain.handle('clear-error', () => {
 ipcMain.handle('minimize-window', () => mainWindow.minimize());
 ipcMain.handle('close-window', () => mainWindow.hide());
 
+ipcMain.handle('open-external', (event, url) => {
+  const { shell } = require('electron');
+  if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
+    shell.openExternal(url);
+  }
+});
+
 ipcMain.handle('get-system-info', () => ({
   platform: process.platform,
   arch: process.arch,
@@ -1328,9 +1539,12 @@ app.on('before-quit', () => {
 // Ensure proxy cleanup on any exit scenario
 function emergencyCleanup() {
   try { disableSystemProxy(); } catch (e) {}
+  try { stopWinwsMonitor(); } catch (e) {}
   try { if (proxyProcess) proxyProcess.kill(); } catch (e) {}
   if (process.platform === 'darwin') {
     try { execSync('pkill -f tpws 2>/dev/null', { stdio: 'pipe' }); } catch (e) {}
+  } else if (process.platform === 'win32') {
+    try { execSync('taskkill /F /IM winws.exe', { stdio: 'pipe' }); } catch (e) {}
   }
 }
 
