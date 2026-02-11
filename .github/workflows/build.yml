@@ -88,6 +88,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Remove debug files
+        run: rm -f dist/builder-debug.yml
+
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -134,6 +137,10 @@ jobs:
           command: npm run build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Remove debug files
+        run: del dist\builder-debug.yml 2>nul || true
+        shell: cmd
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
