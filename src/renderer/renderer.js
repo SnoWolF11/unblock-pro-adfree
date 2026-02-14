@@ -13,6 +13,7 @@ const progressFill = document.getElementById('progressFill');
 const downloadPercent = document.getElementById('downloadPercent');
 const autostartToggle = document.getElementById('autostartToggle');
 const autoconnectToggle = document.getElementById('autoconnectToggle');
+const strategySelect = document.getElementById('strategySelect');
 
 // New UI elements
 const connectionTimer = document.getElementById('connectionTimer');
@@ -65,6 +66,7 @@ const ERROR_TITLES = {
 async function init() {
   setupEventListeners();
   await loadSystemInfo();
+  await loadStrategies();
   await loadStatus();
   await loadSettings();
   await loadLogs();
@@ -88,6 +90,11 @@ function setupEventListeners() {
   
   autoconnectToggle.addEventListener('change', async () => {
     await window.api.setAutoConnect(autoconnectToggle.checked);
+  });
+  
+  // Strategy selector
+  strategySelect.addEventListener('change', async () => {
+    await window.api.setSelectedStrategy(strategySelect.value);
   });
   
   // Error card dismiss
@@ -163,11 +170,34 @@ async function loadStatus() {
   }
 }
 
+async function loadStrategies() {
+  try {
+    const strategies = await window.api.getStrategies();
+    // Clear existing options except "Автоподбор"
+    strategySelect.innerHTML = '<option value="auto">Автоподбор</option>';
+    for (const name of strategies) {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      strategySelect.appendChild(option);
+    }
+  } catch (error) {
+    // silently handle — dropdown will just show "Автоподбор"
+  }
+}
+
 async function loadSettings() {
   try {
     const settings = await window.api.getSettings();
     autostartToggle.checked = settings.autoStart || false;
     autoconnectToggle.checked = settings.autoConnect || false;
+    
+    // Set strategy selector
+    if (settings.selectedStrategy && settings.selectedStrategy !== 'auto') {
+      strategySelect.value = settings.selectedStrategy;
+    } else {
+      strategySelect.value = 'auto';
+    }
   } catch (error) {
     // silently handle
   }

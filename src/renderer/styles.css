@@ -691,6 +691,44 @@ body {
   background: white;
 }
 
+/* Strategy select dropdown */
+.strategy-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  padding: 6px 28px 6px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: all var(--transition-fast);
+  max-width: 160px;
+  min-width: 120px;
+  text-overflow: ellipsis;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23a0a0b0' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+
+.strategy-select:hover {
+  border-color: var(--accent-blue);
+  background-color: var(--bg-tertiary);
+}
+
+.strategy-select:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px var(--accent-blue-glow);
+}
+
+.strategy-select option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 6px;
+}
+
 /* Logs card */
 .logs-card {
   background: var(--bg-tertiary);

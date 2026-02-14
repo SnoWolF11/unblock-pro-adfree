@@ -21,6 +21,10 @@ contextBridge.exposeInMainWorld('api', {
   setAutoStart: (enabled) => ipcRenderer.invoke('set-auto-start', enabled),
   setAutoConnect: (enabled) => ipcRenderer.invoke('set-auto-connect', enabled),
   
+  // Strategy selection
+  getStrategies: () => ipcRenderer.invoke('get-strategies'),
+  setSelectedStrategy: (name) => ipcRenderer.invoke('set-selected-strategy', name),
+  
   // Updates
   installUpdate: () => ipcRenderer.invoke('install-update'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),

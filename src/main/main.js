@@ -18,6 +18,7 @@ let disconnectReason = null;
 let connectedSince = null; // timestamp when connected
 let strategyProgress = null; // { current: N, total: M, name: '...' }
 let logEntries = []; // strategy testing log for UI
+let hostListsDir = null; // directory with host list files for strategies
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -31,7 +32,7 @@ function loadSettings() {
       return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     }
   } catch (e) {}
-  return { autoStart: false, autoConnect: false };
+  return { autoStart: false, autoConnect: false, selectedStrategy: 'auto', lastWorkingStrategy: null };
 }
 
 function saveSettings(settings) {
@@ -91,14 +92,18 @@ function getResourcePath() {
   if (isDev) {
     return path.join(__dirname, '..', '..', 'bin', process.platform);
   }
-  return path.join(process.resourcesPath, 'bin');
+  // Use writable userData directory instead of app bundle Resources.
+  // On macOS, App Translocation makes the .app bundle read-only when
+  // the app is downloaded and quarantined, so we can't write to
+  // process.resourcesPath. Using userData (~/.../UnblockPro/) is always writable.
+  return path.join(app.getPath('userData'), 'bin', process.platform);
 }
 
 function getBinDir() {
   if (isDev) {
     return path.join(__dirname, '..', '..', 'bin');
   }
-  return path.join(process.resourcesPath, 'bin');
+  return path.join(app.getPath('userData'), 'bin');
 }
 
 function getBinaryPath() {
@@ -117,217 +122,482 @@ function getBinaryPath() {
   return null;
 }
 
-// DPI bypass strategies — based on Flowseal/zapret-discord-youtube (22k+ stars)
-const STRATEGIES = {
-  darwin: [
-    // === BASIC (work on most ISPs) ===
-    {
-      name: 'split+disorder',
-      args: ['--port', '1080', '--socks', '--split-pos=1', '--disorder', '--hostcase']
-    },
-    {
-      name: 'split-midsld+disorder',
-      args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder', '--hostcase']
-    },
-    {
-      name: 'split2+disorder',
-      args: ['--port', '1080', '--socks', '--split-pos=2', '--disorder', '--hostcase']
-    },
-    // === TLS-AWARE ===
-    {
-      name: 'tlsrec+split+disorder',
-      args: ['--port', '1080', '--socks', '--tlsrec=sni', '--split-pos=1', '--disorder', '--hostcase']
-    },
-    {
-      name: 'split-tls+disorder',
-      args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder=tls', '--hostcase']
-    },
-    // === HOST MANIPULATION ===
-    {
-      name: 'methodeol+split',
-      args: ['--port', '1080', '--socks', '--methodeol', '--split-pos=1', '--hostcase']
-    },
-    {
-      name: 'hostdot+split+disorder',
-      args: ['--port', '1080', '--socks', '--hostdot', '--split-pos=1,midsld', '--disorder']
-    },
-    {
-      name: 'hostpad+split+disorder',
-      args: ['--port', '1080', '--socks', '--hostpad=256', '--split-pos=1', '--disorder', '--hostcase']
-    },
-    // === OOB ===
-    {
-      name: 'oob+split+disorder',
-      args: ['--port', '1080', '--socks', '--oob', '--split-pos=1', '--disorder']
-    },
-    {
-      name: 'oob+methodeol+split',
-      args: ['--port', '1080', '--socks', '--oob', '--methodeol', '--split-pos=1', '--hostcase']
-    },
-    // === COMBINED (aggressive) ===
-    {
-      name: 'combined-v1',
-      args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder', '--hostcase', '--methodeol']
-    },
-    {
-      name: 'combined-v2',
-      args: ['--port', '1080', '--socks', '--oob', '--methodeol', '--split-pos=1,midsld', '--disorder', '--hostcase', '--hostdot']
-    },
-    {
-      name: 'combined-v3',
-      args: ['--port', '1080', '--socks', '--tlsrec=sni', '--hostpad=256', '--split-pos=2', '--disorder', '--hostcase']
-    },
-    // === EXTENDED SPLIT POSITIONS ===
-    {
-      name: 'split3+disorder',
-      args: ['--port', '1080', '--socks', '--split-pos=3', '--disorder', '--hostcase']
-    },
-    {
-      name: 'split-sniext+disorder',
-      args: ['--port', '1080', '--socks', '--split-pos=1,sniext', '--disorder', '--hostcase']
-    },
-    // === HOST MANIPULATION VARIANTS ===
-    {
-      name: 'hosttab+split+disorder',
-      args: ['--port', '1080', '--socks', '--hosttab', '--split-pos=1', '--disorder', '--hostcase']
-    },
-    {
-      name: 'hostspell+split',
-      args: ['--port', '1080', '--socks', '--hostspell', '--split-pos=1', '--disorder']
-    },
-    // === LARGE HOSTPAD VARIANTS ===
-    {
-      name: 'hostpad512+split+disorder',
-      args: ['--port', '1080', '--socks', '--hostpad=512', '--split-pos=1', '--disorder', '--hostcase']
-    },
-    {
-      name: 'hostpad1024+split',
-      args: ['--port', '1080', '--socks', '--hostpad=1024', '--split-pos=1,midsld', '--hostcase']
-    },
-    // === TLS RECORD MANIPULATION ===
-    {
-      name: 'tlsrec+disorder',
-      args: ['--port', '1080', '--socks', '--tlsrec=sni', '--disorder', '--hostcase']
-    },
-    {
-      name: 'tlsrec+oob+split',
-      args: ['--port', '1080', '--socks', '--tlsrec=sni', '--oob', '--split-pos=1', '--hostcase']
-    },
-    // === AGGRESSIVE COMBINED ===
-    {
-      name: 'combined-v4',
-      args: ['--port', '1080', '--socks', '--oob', '--hostpad=256', '--split-pos=1,midsld', '--disorder', '--hostcase', '--methodeol']
-    },
-    {
-      name: 'combined-v5',
-      args: ['--port', '1080', '--socks', '--tlsrec=sni', '--methodeol', '--hostdot', '--split-pos=2', '--disorder', '--hostcase']
-    },
-    // === MINIMAL (last resort) ===
-    {
-      name: 'split-only',
-      args: ['--port', '1080', '--socks', '--split-pos=1']
-    },
-    {
-      name: 'disorder-only',
-      args: ['--port', '1080', '--socks', '--disorder']
+// ============= HOST LISTS & PATTERN FILES =============
+
+// Domain lists matching Flowseal/zapret-discord-youtube
+const HOST_LIST_GENERAL = [
+  'cloudflare-ech.com', 'encryptedsni.com', 'cloudflareaccess.com', 'cloudflareapps.com',
+  'cloudflarebolt.com', 'cloudflareclient.com', 'cloudflareinsights.com', 'cloudflareok.com',
+  'cloudflarepartners.com', 'cloudflareportal.com', 'cloudflarepreview.com', 'cloudflareresolve.com',
+  'cloudflaressl.com', 'cloudflarestatus.com', 'cloudflarestorage.com', 'cloudflarestream.com',
+  'cloudflaretest.com', 'dis.gd', 'discord-attachments-uploads-prd.storage.googleapis.com',
+  'discord.app', 'discord.co', 'discord.com', 'discord.design', 'discord.dev', 'discord.gift',
+  'discord.gifts', 'discord.gg', 'discord.media', 'discord.new', 'discord.store', 'discord.status',
+  'discord-activities.com', 'discordactivities.com', 'discordapp.com', 'discordapp.net',
+  'discordcdn.com', 'discordmerch.com', 'discordpartygames.com', 'discordsays.com',
+  'discordsez.com', 'discordstatus.com', 'frankerfacez.com', 'ffzap.com', 'betterttv.net',
+  '7tv.app', '7tv.io', 'localizeapi.com',
+  // YouTube / Google
+  'youtube.com', 'youtu.be', 'yt.be', 'ytimg.com', 'googlevideo.com', 'youtube-nocookie.com',
+  'youtubei.googleapis.com', 'yt3.ggpht.com', 'yt3.googleusercontent.com',
+  'youtube-ui.l.google.com', 'youtubeembeddedplayer.googleapis.com'
+].join('\n');
+
+const HOST_LIST_GOOGLE = [
+  'youtube.com', 'youtu.be', 'yt.be', 'ytimg.com', 'googlevideo.com', 'youtube-nocookie.com',
+  'youtubei.googleapis.com', 'yt3.ggpht.com', 'yt3.googleusercontent.com',
+  'youtube-ui.l.google.com', 'youtubeembeddedplayer.googleapis.com',
+  'googleapis.com', 'gstatic.com', 'ggpht.com', 'googleusercontent.com'
+].join('\n');
+
+function ensureHostLists() {
+  if (hostListsDir && fs.existsSync(hostListsDir)) return hostListsDir;
+  
+  hostListsDir = path.join(app.getPath('userData'), 'lists');
+  fs.mkdirSync(hostListsDir, { recursive: true });
+  
+  fs.writeFileSync(path.join(hostListsDir, 'list-general.txt'), HOST_LIST_GENERAL, 'utf8');
+  fs.writeFileSync(path.join(hostListsDir, 'list-google.txt'), HOST_LIST_GOOGLE, 'utf8');
+  
+  return hostListsDir;
+}
+
+// Generate fake QUIC initial packet (standard QUIC Initial packet for google.com)
+// This is what Flowseal ships as quic_initial_www_google_com.bin
+function generateFakeQuicInitial() {
+  // QUIC Initial packet header: long header form, version 1
+  // This is a minimal valid-looking QUIC Initial packet
+  const buf = Buffer.alloc(256);
+  let offset = 0;
+  
+  // Flags: Long Header, Initial packet type (0xc0)
+  buf[offset++] = 0xc3;
+  // Version: QUIC v1 (0x00000001)
+  buf.writeUInt32BE(0x00000001, offset); offset += 4;
+  // DCID Length + DCID (8 bytes random)
+  buf[offset++] = 0x08;
+  for (let i = 0; i < 8; i++) buf[offset++] = Math.floor(Math.random() * 256);
+  // SCID Length + SCID (0 bytes)
+  buf[offset++] = 0x00;
+  // Token Length (0)
+  buf[offset++] = 0x00;
+  // Length (2 bytes, remaining)
+  const remaining = 256 - offset - 2;
+  buf.writeUInt16BE(0x4000 | remaining, offset); offset += 2;
+  // Packet Number (4 bytes)
+  buf.writeUInt32BE(0x00000001, offset); offset += 4;
+  // Fill rest with random data to look like encrypted payload
+  for (let i = offset; i < 256; i++) buf[i] = Math.floor(Math.random() * 256);
+  
+  return buf;
+}
+
+// Generate fake TLS ClientHello packet
+function generateFakeTlsClientHello(sni = 'www.google.com') {
+  // Minimal TLS 1.2 ClientHello with SNI extension
+  const sniBytes = Buffer.from(sni, 'ascii');
+  
+  // Build SNI extension
+  const sniExtension = Buffer.alloc(9 + sniBytes.length);
+  let off = 0;
+  // Extension type: server_name (0x0000)
+  sniExtension.writeUInt16BE(0x0000, off); off += 2;
+  // Extension data length
+  sniExtension.writeUInt16BE(5 + sniBytes.length, off); off += 2;
+  // Server Name List Length
+  sniExtension.writeUInt16BE(3 + sniBytes.length, off); off += 2;
+  // Server Name Type: host_name (0)
+  sniExtension[off++] = 0x00;
+  // Server Name Length
+  sniExtension.writeUInt16BE(sniBytes.length, off); off += 2;
+  // Server Name
+  sniBytes.copy(sniExtension, off);
+  
+  // Build ClientHello
+  const random = Buffer.alloc(32);
+  for (let i = 0; i < 32; i++) random[i] = Math.floor(Math.random() * 256);
+  
+  // Cipher suites (common ones)
+  const cipherSuites = Buffer.from([
+    0x00, 0x04, // length: 2 suites
+    0x13, 0x01, // TLS_AES_128_GCM_SHA256
+    0x13, 0x02  // TLS_AES_256_GCM_SHA384
+  ]);
+  
+  // Compression methods
+  const compression = Buffer.from([0x01, 0x00]); // 1 method: null
+  
+  // Extensions length + data
+  const extensionsLen = Buffer.alloc(2);
+  extensionsLen.writeUInt16BE(sniExtension.length, 0);
+  
+  // ClientHello body
+  const clientHelloBody = Buffer.concat([
+    Buffer.from([0x03, 0x03]), // TLS 1.2
+    random,
+    Buffer.from([0x00]), // Session ID length: 0
+    cipherSuites,
+    compression,
+    extensionsLen,
+    sniExtension
+  ]);
+  
+  // Handshake header
+  const handshake = Buffer.alloc(4 + clientHelloBody.length);
+  handshake[0] = 0x01; // ClientHello
+  handshake[1] = 0x00;
+  handshake.writeUInt16BE(clientHelloBody.length, 2);
+  clientHelloBody.copy(handshake, 4);
+  
+  // TLS record
+  const record = Buffer.alloc(5 + handshake.length);
+  record[0] = 0x16; // Handshake
+  record.writeUInt16BE(0x0301, 1); // TLS 1.0 (record layer)
+  record.writeUInt16BE(handshake.length, 3);
+  handshake.copy(record, 5);
+  
+  return record;
+}
+
+function ensureBinPatternFiles(platformDir) {
+  const files = {
+    'quic_initial_www_google_com.bin': () => generateFakeQuicInitial(),
+    'tls_clienthello_www_google_com.bin': () => generateFakeTlsClientHello('www.google.com'),
+    'tls_clienthello_4pda_to.bin': () => generateFakeTlsClientHello('4pda.to'),
+    'tls_clienthello_max_ru.bin': () => generateFakeTlsClientHello('max.ru')
+  };
+  
+  for (const [filename, generator] of Object.entries(files)) {
+    const filePath = path.join(platformDir, filename);
+    if (!fs.existsSync(filePath)) {
+      try {
+        fs.writeFileSync(filePath, generator());
+      } catch (e) {
+        // Non-critical: some strategies just won't use pattern files
+      }
     }
-  ],
-  // All strategies from Flowseal/zapret-discord-youtube (22k+ stars)
-  // Simplified for UnblockPro (without hostlists/ipsets/pattern files)
-  // Multi-rule format with --filter/--new for proper TCP+UDP+Discord handling
-  win32: [
+  }
+}
+
+// Build strategy args with resolved bin/list paths
+// NOTE: paths are NOT quoted here — spawn() handles quoting automatically.
+// The batch-file elevated path also handles quoting via its own logic.
+function buildWin32Strategies(binDir, listsDir) {
+  const q = (f) => path.join(binDir, f);  // bin file path
+  const l = (f) => path.join(listsDir, f); // list file path
+  
+  // Common prefix for all strategies: port filters
+  const WF_FULL = ['--wf-tcp=80,443,2053,2083,2087,2096,8443', '--wf-udp=443,19294-19344,50000-50100'];
+  const WF_TCP443 = ['--wf-tcp=443', '--wf-udp=443,19294-19344,50000-50100'];
+  
+  // Common UDP rules (same across all Flowseal strategies)
+  function udpRules(quicRepeats = 6) {
+    return [
+      '--filter-udp=443', `--hostlist=${l('list-general.txt')}`, '--dpi-desync=fake',
+      `--dpi-desync-repeats=${quicRepeats}`, `--dpi-desync-fake-quic=${q('quic_initial_www_google_com.bin')}`, '--new',
+      '--filter-udp=19294-19344,50000-50100', '--filter-l7=discord,stun',
+      '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new'
+    ];
+  }
+  
+  // Discord media TCP rule (ports 2053,2083,2087,2096,8443)
+  function discordMediaRule(method, extraArgs = []) {
+    return [
+      '--filter-tcp=2053,2083,2087,2096,8443', '--hostlist-domains=discord.media',
+      `--dpi-desync=${method}`, ...extraArgs, '--new'
+    ];
+  }
+  
+  // Google-specific TCP 443 rule
+  function googleRule(method, extraArgs = []) {
+    return [
+      '--filter-tcp=443', `--hostlist=${l('list-google.txt')}`, '--ip-id=zero',
+      `--dpi-desync=${method}`, ...extraArgs, '--new'
+    ];
+  }
+  
+  // General TCP rule
+  function generalTcpRule(method, extraArgs = []) {
+    return [
+      '--filter-tcp=80,443', `--hostlist=${l('list-general.txt')}`,
+      `--dpi-desync=${method}`, ...extraArgs
+    ];
+  }
+
+  return [
+    // === general — multisplit seqovl=568 (Flowseal default, most compatible) ===
+    { name: 'general', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1',
+        `--dpi-desync-split-seqovl-pattern=${q('tls_clienthello_www_google_com.bin')}`]),
+      ...googleRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1',
+        `--dpi-desync-split-seqovl-pattern=${q('tls_clienthello_www_google_com.bin')}`]),
+      ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=568', '--dpi-desync-split-pos=1',
+        `--dpi-desync-split-seqovl-pattern=${q('tls_clienthello_4pda_to.bin')}`])
+    ]},
     // === ALT9 — hostfakesplit ts,md5sig ===
-    { name: 'ALT9', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=hostfakesplit', '--dpi-desync-repeats=4', '--dpi-desync-fooling=ts,md5sig', '--dpi-desync-hostfakesplit-mod=host=ozon.ru'] },
+    { name: 'ALT9', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('hostfakesplit', ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts',
+        '--dpi-desync-hostfakesplit-mod=host=www.google.com']),
+      ...googleRule('hostfakesplit', ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts',
+        '--dpi-desync-hostfakesplit-mod=host=www.google.com']),
+      ...generalTcpRule('hostfakesplit', ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts,md5sig',
+        '--dpi-desync-hostfakesplit-mod=host=ozon.ru'])
+    ]},
     // === ALT3 — fake+hostfakesplit rnd,dupsid ===
-    { name: 'ALT3', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=fake,hostfakesplit', '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru', '--dpi-desync-hostfakesplit-mod=host=ya.ru,altorder=1', '--dpi-desync-fooling=ts'] },
-    // === general — multisplit seqovl=568 (Flowseal default) ===
-    { name: 'general', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=568', '--dpi-desync-split-pos=1'] },
+    { name: 'ALT3', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('fake,hostfakesplit', ['--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com',
+        '--dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1', '--dpi-desync-fooling=ts']),
+      ...googleRule('fake,hostfakesplit', ['--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com',
+        '--dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1', '--dpi-desync-fooling=ts']),
+      ...generalTcpRule('fake,hostfakesplit', ['--dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru',
+        '--dpi-desync-hostfakesplit-mod=host=ya.ru,altorder=1', '--dpi-desync-fooling=ts'])
+    ]},
     // === ALT — fake+fakedsplit ts ===
-    { name: 'ALT', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=fake,fakedsplit', '--dpi-desync-repeats=6', '--dpi-desync-fooling=ts', '--dpi-desync-fakedsplit-pattern=0x00'] },
+    { name: 'ALT', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        '--dpi-desync-fakedsplit-pattern=0x00']),
+      ...googleRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        '--dpi-desync-fakedsplit-pattern=0x00']),
+      ...generalTcpRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        '--dpi-desync-fakedsplit-pattern=0x00'])
+    ]},
     // === ALT2 — multisplit seqovl=652 pos=2 ===
-    { name: 'ALT2', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2'] },
+    { name: 'ALT2', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2']),
+      ...googleRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2']),
+      ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2'])
+    ]},
     // === ALT4 — fake+multisplit badseq ===
-    { name: 'ALT4', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=fake,multisplit', '--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=1000'] },
+    { name: 'ALT4', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('fake,multisplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-badseq-increment=1000']),
+      ...googleRule('fake,multisplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-badseq-increment=1000']),
+      ...generalTcpRule('fake,multisplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-badseq-increment=1000'])
+    ]},
     // === ALT5 — syndata+multidisorder (ipv4) ===
-    { name: 'ALT5', args: ['--wf-tcp=443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder'] },
+    { name: 'ALT5', args: [
+      ...WF_TCP443,
+      ...udpRules(6),
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder'
+    ]},
     // === ALT6 — multisplit seqovl=681 ===
-    { name: 'ALT6', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1'] },
+    { name: 'ALT6', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1']),
+      ...googleRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1']),
+      ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1'])
+    ]},
     // === ALT7 — multisplit pos=2,sniext+1 seqovl=679 ===
-    { name: 'ALT7', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=multisplit', '--dpi-desync-split-pos=2,sniext+1', '--dpi-desync-split-seqovl=679'] },
+    { name: 'ALT7', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('multisplit', ['--dpi-desync-split-pos=2,sniext+1', '--dpi-desync-split-seqovl=679']),
+      ...googleRule('multisplit', ['--dpi-desync-split-pos=2,sniext+1', '--dpi-desync-split-seqovl=679']),
+      ...generalTcpRule('multisplit', ['--dpi-desync-split-pos=2,sniext+1', '--dpi-desync-split-seqovl=679'])
+    ]},
     // === ALT8 — fake badseq-increment=2 ===
-    { name: 'ALT8', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=fake', '--dpi-desync-fake-tls-mod=none', '--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2'] },
+    { name: 'ALT8', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('fake', ['--dpi-desync-fake-tls-mod=none', '--dpi-desync-repeats=6',
+        '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2']),
+      ...googleRule('fake', ['--dpi-desync-fake-tls-mod=none', '--dpi-desync-repeats=6',
+        '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2']),
+      ...generalTcpRule('fake', ['--dpi-desync-fake-tls-mod=none', '--dpi-desync-repeats=6',
+        '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2'])
+    ]},
     // === ALT10 — fake ts with repeats=6 ===
-    { name: 'ALT10', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=ts', '--dpi-desync-fake-tls-mod=none'] },
+    { name: 'ALT10', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        '--dpi-desync-fake-tls-mod=none']),
+      ...googleRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        '--dpi-desync-fake-tls-mod=none']),
+      ...generalTcpRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        '--dpi-desync-fake-tls-mod=none'])
+    ]},
     // === ALT11 — fake+multisplit seqovl=664 ts repeats=8 ===
-    { name: 'ALT11', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=11', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=fake,multisplit', '--dpi-desync-split-seqovl=664', '--dpi-desync-split-pos=1', '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8'] },
-    // === SIMPLE FAKE — fake ts repeats=6 ===
-    { name: 'SIMPLE FAKE', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=ts'] },
+    { name: 'ALT11', args: [
+      ...WF_FULL,
+      ...udpRules(11),
+      ...discordMediaRule('fake,multisplit', ['--dpi-desync-split-seqovl=664', '--dpi-desync-split-pos=1',
+        '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8']),
+      ...googleRule('fake,multisplit', ['--dpi-desync-split-seqovl=664', '--dpi-desync-split-pos=1',
+        '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8']),
+      ...generalTcpRule('fake,multisplit', ['--dpi-desync-split-seqovl=664', '--dpi-desync-split-pos=1',
+        '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8'])
+    ]},
+    // === SIMPLE FAKE — fake ts with TLS pattern files ===
+    { name: 'SIMPLE FAKE', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
+      ...googleRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
+      ...generalTcpRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`,
+        `--dpi-desync-fake-http=${q('tls_clienthello_max_ru.bin')}`])
+    ]},
+    // === SIMPLE FAKE ALT — fake ts+md5sig ===
+    { name: 'SIMPLE FAKE ALT', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
+        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
+      ...googleRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
+        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
+      ...generalTcpRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
+        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`,
+        `--dpi-desync-fake-http=${q('tls_clienthello_max_ru.bin')}`])
+    ]},
     // === FAKE TLS AUTO — fake+multidisorder badseq rnd,dupsid ===
-    { name: 'FAKE TLS AUTO', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=11', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=fake,multidisorder', '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq', '--dpi-desync-fake-tls=0x00000000'] },
+    { name: 'FAKE TLS AUTO', args: [
+      ...WF_FULL,
+      ...udpRules(11),
+      ...discordMediaRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
+        '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq', '--dpi-desync-fake-tls=0x00000000',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com']),
+      ...googleRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
+        '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq', '--dpi-desync-fake-tls=0x00000000',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com']),
+      ...generalTcpRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
+        '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq', '--dpi-desync-fake-tls=0x00000000',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com',
+        `--dpi-desync-fake-http=${q('tls_clienthello_max_ru.bin')}`])
+    ]},
+    // === FAKE TLS AUTO ALT — variant with different sni ===
+    { name: 'FAKE TLS AUTO ALT', args: [
+      ...WF_FULL,
+      ...udpRules(11),
+      ...discordMediaRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
+        '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq', '--dpi-desync-fake-tls=0x00000000',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru']),
+      ...googleRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
+        '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq', '--dpi-desync-fake-tls=0x00000000',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru']),
+      ...generalTcpRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
+        '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq', '--dpi-desync-fake-tls=0x00000000',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru',
+        `--dpi-desync-fake-http=${q('tls_clienthello_max_ru.bin')}`])
+    ]},
     // === Extra: fake+multidisorder badseq+md5sig ===
-    { name: 'fake+multidisorder', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=fake,multidisorder', '--dpi-desync-split-pos=1,midsld', '--dpi-desync-fooling=badseq,md5sig'] },
+    { name: 'fake+multidisorder', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
+        '--dpi-desync-fooling=badseq,md5sig']),
+      ...googleRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
+        '--dpi-desync-fooling=badseq,md5sig']),
+      ...generalTcpRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
+        '--dpi-desync-fooling=badseq,md5sig'])
+    ]},
     // === Extra: fake+split2 autottl md5sig ===
-    { name: 'fake+split2-autottl', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=fake,split2', '--dpi-desync-autottl=5', '--dpi-desync-repeats=6', '--dpi-desync-fooling=md5sig'] },
+    { name: 'fake+split2-autottl', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('fake,split2', ['--dpi-desync-autottl=5', '--dpi-desync-repeats=6',
+        '--dpi-desync-fooling=md5sig']),
+      ...googleRule('fake,split2', ['--dpi-desync-autottl=5', '--dpi-desync-repeats=6',
+        '--dpi-desync-fooling=md5sig']),
+      ...generalTcpRule('fake,split2', ['--dpi-desync-autottl=5', '--dpi-desync-repeats=6',
+        '--dpi-desync-fooling=md5sig'])
+    ]},
     // === Extra: fakedsplit badseq ===
-    { name: 'fakedsplit-badseq', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=fake,fakedsplit', '--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-fakedsplit-pattern=0x00'] },
+    { name: 'fakedsplit-badseq', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-fakedsplit-pattern=0x00']),
+      ...googleRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-fakedsplit-pattern=0x00']),
+      ...generalTcpRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-fakedsplit-pattern=0x00'])
+    ]},
     // === Extra: fakedsplit md5sig ===
-    { name: 'fakedsplit-md5sig', args: ['--wf-tcp=80,443', '--wf-udp=443,50000-50100',
-        '--filter-udp=443', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-udp=50000-50100', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-        '--filter-tcp=80,443', '--dpi-desync=fake,fakedsplit', '--dpi-desync-repeats=6', '--dpi-desync-fooling=md5sig', '--dpi-desync-fakedsplit-pattern=0x00'] }
-  ]
-};
+    { name: 'fakedsplit-md5sig', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=md5sig',
+        '--dpi-desync-fakedsplit-pattern=0x00']),
+      ...googleRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=md5sig',
+        '--dpi-desync-fakedsplit-pattern=0x00']),
+      ...generalTcpRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=md5sig',
+        '--dpi-desync-fakedsplit-pattern=0x00'])
+    ]}
+  ];
+}
+
+// DPI bypass strategies — based on Flowseal/zapret-discord-youtube (22k+ stars)
+// macOS strategies are static (tpws SOCKS proxy), Windows strategies are built dynamically
+// because they need runtime paths to .bin pattern files and host list files
+const STRATEGIES_DARWIN = [
+  // === BASIC (work on most ISPs) ===
+  { name: 'split+disorder', args: ['--port', '1080', '--socks', '--split-pos=1', '--disorder', '--hostcase'] },
+  { name: 'split-midsld+disorder', args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder', '--hostcase'] },
+  { name: 'split2+disorder', args: ['--port', '1080', '--socks', '--split-pos=2', '--disorder', '--hostcase'] },
+  // === TLS-AWARE ===
+  { name: 'tlsrec+split+disorder', args: ['--port', '1080', '--socks', '--tlsrec=sni', '--split-pos=1', '--disorder', '--hostcase'] },
+  { name: 'split-tls+disorder', args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder=tls', '--hostcase'] },
+  // === HOST MANIPULATION ===
+  { name: 'methodeol+split', args: ['--port', '1080', '--socks', '--methodeol', '--split-pos=1', '--hostcase'] },
+  { name: 'hostdot+split+disorder', args: ['--port', '1080', '--socks', '--hostdot', '--split-pos=1,midsld', '--disorder'] },
+  { name: 'hostpad+split+disorder', args: ['--port', '1080', '--socks', '--hostpad=256', '--split-pos=1', '--disorder', '--hostcase'] },
+  // === OOB ===
+  { name: 'oob+split+disorder', args: ['--port', '1080', '--socks', '--oob', '--split-pos=1', '--disorder'] },
+  { name: 'oob+methodeol+split', args: ['--port', '1080', '--socks', '--oob', '--methodeol', '--split-pos=1', '--hostcase'] },
+  // === COMBINED (aggressive) ===
+  { name: 'combined-v1', args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder', '--hostcase', '--methodeol'] },
+  { name: 'combined-v2', args: ['--port', '1080', '--socks', '--oob', '--methodeol', '--split-pos=1,midsld', '--disorder', '--hostcase', '--hostdot'] },
+  { name: 'combined-v3', args: ['--port', '1080', '--socks', '--tlsrec=sni', '--hostpad=256', '--split-pos=2', '--disorder', '--hostcase'] },
+  // === EXTENDED SPLIT POSITIONS ===
+  { name: 'split3+disorder', args: ['--port', '1080', '--socks', '--split-pos=3', '--disorder', '--hostcase'] },
+  { name: 'split-sniext+disorder', args: ['--port', '1080', '--socks', '--split-pos=1,sniext', '--disorder', '--hostcase'] },
+  // === HOST MANIPULATION VARIANTS ===
+  { name: 'hosttab+split+disorder', args: ['--port', '1080', '--socks', '--hosttab', '--split-pos=1', '--disorder', '--hostcase'] },
+  { name: 'hostspell+split', args: ['--port', '1080', '--socks', '--hostspell', '--split-pos=1', '--disorder'] },
+  // === LARGE HOSTPAD VARIANTS ===
+  { name: 'hostpad512+split+disorder', args: ['--port', '1080', '--socks', '--hostpad=512', '--split-pos=1', '--disorder', '--hostcase'] },
+  { name: 'hostpad1024+split', args: ['--port', '1080', '--socks', '--hostpad=1024', '--split-pos=1,midsld', '--hostcase'] },
+  // === TLS RECORD MANIPULATION ===
+  { name: 'tlsrec+disorder', args: ['--port', '1080', '--socks', '--tlsrec=sni', '--disorder', '--hostcase'] },
+  { name: 'tlsrec+oob+split', args: ['--port', '1080', '--socks', '--tlsrec=sni', '--oob', '--split-pos=1', '--hostcase'] },
+  // === AGGRESSIVE COMBINED ===
+  { name: 'combined-v4', args: ['--port', '1080', '--socks', '--oob', '--hostpad=256', '--split-pos=1,midsld', '--disorder', '--hostcase', '--methodeol'] },
+  { name: 'combined-v5', args: ['--port', '1080', '--socks', '--tlsrec=sni', '--methodeol', '--hostdot', '--split-pos=2', '--disorder', '--hostcase'] },
+  // === MINIMAL (last resort) ===
+  { name: 'split-only', args: ['--port', '1080', '--socks', '--split-pos=1'] },
+  { name: 'disorder-only', args: ['--port', '1080', '--socks', '--disorder'] }
+];
+
+// Get strategies for current platform (Windows strategies are built dynamically with paths)
+function getStrategiesForPlatform() {
+  if (process.platform === 'darwin') {
+    return STRATEGIES_DARWIN;
+  } else if (process.platform === 'win32') {
+    const binDir = getResourcePath();
+    const listsDir = ensureHostLists();
+    ensureBinPatternFiles(binDir);
+    return buildWin32Strategies(binDir, listsDir);
+  }
+  return [];
+}
 
 function sendStatus(extra = {}) {
   if (mainWindow && mainWindow.webContents) {
@@ -548,6 +818,29 @@ async function downloadAndExtractBinaries() {
         if (!driverExists || !dllExists) {
           sendLog({ type: 'warning', message: `WinDivert файлы: driver=${driverExists}, dll=${dllExists}` });
         }
+        
+        // Extract .bin pattern files from zapret archive (files/fake/ directory)
+        const extractBinPatterns = (dir) => {
+          if (!fs.existsSync(dir)) return;
+          const items = fs.readdirSync(dir);
+          for (const item of items) {
+            const fullPath = path.join(dir, item);
+            const stat = fs.statSync(fullPath);
+            if (stat.isDirectory()) {
+              // Look inside 'fake' or 'files' subdirectories
+              if (item === 'fake' || item === 'files') extractBinPatterns(fullPath);
+            } else if (item.endsWith('.bin')) {
+              const destFile = path.join(platformDir, item);
+              if (!fs.existsSync(destFile)) {
+                try { fs.copyFileSync(fullPath, destFile); } catch(e) {}
+              }
+            }
+          }
+        };
+        extractBinPatterns(tempDir);
+        
+        // Generate any missing pattern files
+        ensureBinPatternFiles(platformDir);
       } else {
         throw new Error('winws.exe not found in archive');
       }
@@ -754,34 +1047,75 @@ async function testProxyConnection(port = 1080, timeoutSec = 10) {
 
 // ============= DIRECT CONNECTION TEST (Windows) =============
 
+function testSingleDirectConnection(url, timeoutSec = 10) {
+  return new Promise((resolve) => {
+    try {
+      const urlObj = new URL(url);
+      const req = https.get({
+        hostname: urlObj.hostname,
+        path: urlObj.pathname + urlObj.search,
+        timeout: timeoutSec * 1000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36' }
+      }, (res) => {
+        // Consume response data to free up memory
+        res.resume();
+        resolve(res.statusCode > 0 && res.statusCode < 500);
+      });
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+    } catch (e) {
+      resolve(false);
+    }
+  });
+}
+
 async function testDirectConnection(timeoutSec = 10) {
   // winws works at driver level — test with direct HTTPS requests (no SOCKS proxy)
-  const testUrls = [
+  // Test BOTH Discord AND YouTube to ensure full functionality
+  
+  const discordEndpoints = [
     'https://discord.com/api/v10/gateway',
-    'https://www.youtube.com/'
+    'https://cdn.discordapp.com/',
+    'https://discord.com/app'
   ];
   
-  for (const url of testUrls) {
-    const works = await new Promise((resolve) => {
-      try {
-        const urlObj = new URL(url);
-        const req = https.get({
-          hostname: urlObj.hostname,
-          path: urlObj.pathname + urlObj.search,
-          timeout: timeoutSec * 1000,
-          headers: { 'User-Agent': 'Mozilla/5.0 UnblockPro/1.0' }
-        }, (res) => {
-          resolve(res.statusCode > 0 && res.statusCode < 500);
-        });
-        req.on('error', () => resolve(false));
-        req.on('timeout', () => { req.destroy(); resolve(false); });
-      } catch (e) {
-        resolve(false);
-      }
-    });
-    if (works) return true;
+  const youtubeEndpoints = [
+    'https://www.youtube.com/',
+    'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',  // YouTube thumbnail (proves CDN/googlevideo works)
+    'https://youtubei.googleapis.com/youtubei/v1/player'   // YouTube player API
+  ];
+  
+  let discordOk = false;
+  let youtubeOk = false;
+  
+  // Test Discord endpoints
+  for (const url of discordEndpoints) {
+    if (await testSingleDirectConnection(url, timeoutSec)) {
+      discordOk = true;
+      break;
+    }
   }
-  return false;
+  
+  // Test YouTube endpoints
+  for (const url of youtubeEndpoints) {
+    if (await testSingleDirectConnection(url, timeoutSec)) {
+      youtubeOk = true;
+      break;
+    }
+  }
+  
+  // Require at least one service to work, prefer both
+  if (discordOk && youtubeOk) return true;
+  
+  // If only one works, retry the other once (network flakiness)
+  if (discordOk && !youtubeOk) {
+    youtubeOk = await testSingleDirectConnection(youtubeEndpoints[0], timeoutSec);
+  } else if (!discordOk && youtubeOk) {
+    discordOk = await testSingleDirectConnection(discordEndpoints[0], timeoutSec);
+  }
+  
+  // Accept if at least one service works (user may only need one)
+  return discordOk || youtubeOk;
 }
 
 // ============= WINDOWS ELEVATION & MONITORING =============
@@ -851,20 +1185,37 @@ async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrat
 
   for (let i = 0; i < strategies.length; i++) {
     const s = strategies[i];
-    const args = s.args.join(' ');
+    // Quote args that contain spaces or path separators with spaces
+    const quotedArgs = s.args.map(a => {
+      // If arg contains = with a path value, quote the path part
+      const eqIdx = a.indexOf('=');
+      if (eqIdx !== -1) {
+        const key = a.substring(0, eqIdx + 1);
+        const val = a.substring(eqIdx + 1);
+        if (val.includes(' ') || val.includes('\\')) {
+          return `${key}"${val}"`;
+        }
+      }
+      return a;
+    }).join(' ');
     bat += `:: Strategy ${i + 1}: ${s.name}\r\n`;
     bat += `echo ${i + 1}/${totalStrategies}:${s.name}> "%PROGRESS%"\r\n`;
     bat += `cd /d "${binDirectory}"\r\n`;
-    bat += `start "" /b "${finalBinaryPath}" ${args}\r\n`;
+    bat += `start "" /b "${finalBinaryPath}" ${quotedArgs}\r\n`;
     bat += 'timeout /t 3 /nobreak >nul\r\n';
-    // Test connectivity with PowerShell
+    // Test connectivity: try Discord first, then YouTube, then YouTube CDN
     bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://discord.com/api/v10/gateway' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
     bat += 'if !errorlevel! equ 0 (\r\n';
     bat += `  echo WORKS:${s.name}> "%RESULT%"\r\n`;
     bat += '  goto :end\r\n';
     bat += ')\r\n';
-    // Also test YouTube as fallback
     bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://www.youtube.com/' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
+    bat += 'if !errorlevel! equ 0 (\r\n';
+    bat += `  echo WORKS:${s.name}> "%RESULT%"\r\n`;
+    bat += '  goto :end\r\n';
+    bat += ')\r\n';
+    // Also test YouTube CDN (thumbnail) to verify video delivery works
+    bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
     bat += 'if !errorlevel! equ 0 (\r\n';
     bat += `  echo WORKS:${s.name}> "%RESULT%"\r\n`;
     bat += '  goto :end\r\n';
@@ -947,6 +1298,8 @@ async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrat
     connectedSince = Date.now();
     strategyProgress = null;
     clearError();
+    // Save as last working strategy
+    const s = loadSettings(); s.lastWorkingStrategy = result.strategy; saveSettings(s);
     updateTrayMenu();
     sendLog({ type: 'success', message: `Стратегия ${result.strategy} работает!` });
     sendStatus({ searching: false });
@@ -1018,7 +1371,30 @@ async function startProxy() {
 
   sendStatus({ searching: true });
 
-  const strategies = STRATEGIES[process.platform] || [];
+  const allStrategies = getStrategiesForPlatform();
+  
+  // Check if user selected a specific strategy
+  const settings = loadSettings();
+  let strategies = allStrategies;
+  let singleStrategy = false;
+  
+  if (settings.selectedStrategy && settings.selectedStrategy !== 'auto') {
+    const selected = allStrategies.find(s => s.name === settings.selectedStrategy);
+    if (selected) {
+      strategies = [selected];
+      singleStrategy = true;
+      sendLog({ type: 'info', message: `Выбрана стратегия: ${selected.name}` });
+    }
+  } else if (settings.lastWorkingStrategy) {
+    // Try last working strategy first, then all others
+    const lastWorking = allStrategies.find(s => s.name === settings.lastWorkingStrategy);
+    if (lastWorking) {
+      const rest = allStrategies.filter(s => s.name !== settings.lastWorkingStrategy);
+      strategies = [lastWorking, ...rest];
+      sendLog({ type: 'info', message: `Сначала пробуем последнюю рабочую: ${lastWorking.name}` });
+    }
+  }
+  
   const totalStrategies = strategies.length;
   
   sendLog({ type: 'info', message: `Начинаю перебор ${totalStrategies} стратегий...` });
@@ -1150,6 +1526,8 @@ async function startProxy() {
           connectedSince = Date.now();
           strategyProgress = null;
           clearError();
+          // Save as last working strategy
+          const s = loadSettings(); s.lastWorkingStrategy = strategy.name; saveSettings(s);
           updateTrayMenu();
           sendLog({ type: 'success', message: `Стратегия ${strategy.name} работает!` });
           sendStatus({ searching: false });
@@ -1216,6 +1594,8 @@ async function startProxy() {
           connectedSince = Date.now();
           strategyProgress = null;
           clearError();
+          // Save as last working strategy
+          const s = loadSettings(); s.lastWorkingStrategy = strategy.name; saveSettings(s);
           
           // Set up close handler for the connected process
           proxyProcess.removeAllListeners('close');
@@ -1486,6 +1866,18 @@ ipcMain.handle('set-auto-start', (event, enabled) => {
 ipcMain.handle('set-auto-connect', (event, enabled) => {
   const settings = loadSettings();
   settings.autoConnect = enabled;
+  saveSettings(settings);
+  return { success: true };
+});
+
+ipcMain.handle('get-strategies', () => {
+  const strategies = getStrategiesForPlatform();
+  return strategies.map(s => s.name);
+});
+
+ipcMain.handle('set-selected-strategy', (event, strategyName) => {
+  const settings = loadSettings();
+  settings.selectedStrategy = strategyName; // 'auto' or strategy name
   saveSettings(settings);
   return { success: true };
 });
