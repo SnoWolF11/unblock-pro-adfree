@@ -376,6 +376,17 @@ function buildWin32Strategies(binDir, listsDir) {
 
     // === ALT2 (zapret) — multisplit 652 pos=2 + pattern, часто работает для Discord ===
     { name: 'ALT2', args: ALT2_ARGS },
+    // === COMBO: Discord = ALT9 (hostfakesplit), YouTube = multisplit 652 pos=2 — один запуск для обоих ===
+    { name: 'combo:ALT9+multisplit', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('hostfakesplit', ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts',
+        '--dpi-desync-hostfakesplit-mod=host=www.google.com']),
+      ...discordTcp443Rule('hostfakesplit', ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts',
+        '--dpi-desync-hostfakesplit-mod=host=www.google.com']),
+      ...googleRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2']),
+      ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2'])
+    ]},
     // === #1 fake badseq — one method for all, best compatibility ===
     { name: 'fake-badseq', args: [
       ...WF_FULL,
@@ -1913,12 +1924,23 @@ function createWindow() {
     frame: false,
     transparent: true,
     resizable: true,
+    show: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     }
   });
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+  });
+  const showTimeout = setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+  }, 5000);
+  mainWindow.once('show', () => clearTimeout(showTimeout));
 
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
@@ -2182,7 +2204,22 @@ ipcMain.handle('get-settings', () => {
 });
 
 ipcMain.handle('install-update', () => {
-  autoUpdater.quitAndInstall(false, true);
+  if (isDev) {
+    return Promise.resolve({ ok: false, error: 'В режиме разработки обновление недоступно' });
+  }
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('update-status', { status: 'restarting' });
+  }
+  setTimeout(() => {
+    try {
+      autoUpdater.quitAndInstall(false, true);
+    } catch (e) {
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.send('update-status', { status: 'error' });
+      }
+    }
+  }, 400);
+  return Promise.resolve({ ok: true });
 });
 
 ipcMain.handle('check-for-updates', () => {
@@ -2205,8 +2242,12 @@ ipcMain.handle('set-auto-connect', (event, enabled) => {
 });
 
 ipcMain.handle('get-strategies', () => {
-  const strategies = getStrategiesForPlatform();
-  return strategies.map(s => s.name);
+  try {
+    const strategies = getStrategiesForPlatform();
+    return strategies.map(s => s.name);
+  } catch (e) {
+    return ['auto'];
+  }
 });
 
 ipcMain.handle('set-selected-strategy', (event, strategyName) => {

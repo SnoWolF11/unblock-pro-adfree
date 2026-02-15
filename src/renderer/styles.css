@@ -91,6 +91,12 @@ body {
   transform: scale(1.05);
 }
 
+.update-btn:disabled {
+  opacity: 0.8;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .update-banner.downloading .update-btn {
   background: var(--bg-tertiary);
   cursor: default;

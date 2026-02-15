@@ -37,7 +37,37 @@
         </svg>
         <span id="updateText">Обновление доступно</span>
       </div>
-      <button class="update-btn" id="updateBtn">Установить</button>
+      <button type="button" class="update-btn" id="updateBtn" title="Перезапустить для установки">Установить</button>
+    </div>
+
+    <!-- SonicVPN promo (сверху — видят все) -->
+    <div class="promo-card" id="promoCard">
+      <div class="promo-badge">Рекомендуем</div>
+      <div class="promo-content">
+        <div class="promo-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L3 7v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-9-5z" stroke="url(#promoGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M9 12l2 2 4-4" stroke="url(#promoGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <defs>
+              <linearGradient id="promoGrad" x1="3" y1="2" x2="21" y2="22" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#3b82f6"/>
+                <stop offset="1" stop-color="#06b6d4"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="promo-text">
+          <div class="promo-title">SonicVPN</div>
+          <div class="promo-desc">Полная защита трафика с шифрованием. UnblockPro обходит блокировки, а VPN — шифрует всё соединение.</div>
+        </div>
+      </div>
+      <button type="button" class="promo-btn" id="promoBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="2"/>
+          <path d="M10 8l6 4-6 4V8z" fill="currentColor"/>
+        </svg>
+        Попробовать бесплатно
+      </button>
     </div>
 
     <!-- Main content -->
@@ -204,36 +234,6 @@
             Очистить кэш Discord
           </button>
         </div>
-      </div>
-
-      <!-- SonicVPN promo -->
-      <div class="promo-card" id="promoCard">
-        <div class="promo-badge">Рекомендуем</div>
-        <div class="promo-content">
-          <div class="promo-icon">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-              <path d="M12 2L3 7v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-9-5z" stroke="url(#promoGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M9 12l2 2 4-4" stroke="url(#promoGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              <defs>
-                <linearGradient id="promoGrad" x1="3" y1="2" x2="21" y2="22" gradientUnits="userSpaceOnUse">
-                  <stop stop-color="#3b82f6"/>
-                  <stop offset="1" stop-color="#06b6d4"/>
-                </linearGradient>
-              </defs>
-            </svg>
-          </div>
-          <div class="promo-text">
-            <div class="promo-title">SonicVPN</div>
-            <div class="promo-desc">Полная защита трафика с шифрованием. UnblockPro обходит блокировки, а VPN — шифрует всё соединение.</div>
-          </div>
-        </div>
-        <button class="promo-btn" id="promoBtn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-            <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="2"/>
-            <path d="M10 8l6 4-6 4V8z" fill="currentColor"/>
-          </svg>
-          Попробовать бесплатно
-        </button>
       </div>
 
     </div>

@@ -64,19 +64,37 @@ const ERROR_TITLES = {
 
 // Initialize
 async function init() {
-  setupEventListeners();
-  await loadSystemInfo();
-  await loadStrategies();
-  await loadStatus();
-  await loadSettings();
-  await loadLogs();
-  
-  // Listen for updates
+  if (typeof window.api === 'undefined') {
+    const statusTextEl = document.getElementById('statusText');
+    const binaryTextEl = binaryStatus && binaryStatus.querySelector('.binary-text');
+    if (statusTextEl) statusTextEl.textContent = 'Ошибка: приложение не инициализировано';
+    if (binaryTextEl) binaryTextEl.textContent = 'Перезапустите приложение';
+    return;
+  }
+  try {
+    setupEventListeners();
+    await Promise.race([
+      Promise.all([
+        loadSystemInfo(),
+        loadStrategies(),
+        loadStatus(),
+        loadSettings(),
+        loadLogs()
+      ]),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000))
+    ]);
+  } catch (e) {
+    const binaryTextEl = binaryStatus && binaryStatus.querySelector('.binary-text');
+    if (binaryTextEl) binaryTextEl.textContent = 'Готов';
+    updateBinaryStatus(false);
+  }
+  if (typeof window.api === 'undefined') return;
   window.api.onStatus(handleStatusUpdate);
   window.api.onDownloadProgress(handleDownloadProgress);
   window.api.onUpdateStatus(handleUpdateStatus);
   window.api.onUpdateDownloadProgress(handleUpdateDownloadProgress);
   window.api.onLogEntry(handleLogEntry);
+  updateBtn?.addEventListener('click', handleUpdateBtnClick);
 }
 
 function setupEventListeners() {
@@ -496,29 +514,53 @@ async function handleConnectClick() {
 
 // ============= Auto-update handlers =============
 
+let updateDownloadedVersion = null;
+
 function handleUpdateStatus(data) {
   const { status, version } = data;
   
   switch (status) {
     case 'available':
+      updateDownloadedVersion = null;
       updateBanner.style.display = 'flex';
       updateBanner.classList.remove('downloading');
       updateText.textContent = `Обновление v${version} загружается...`;
       updateBtn.style.display = 'none';
       break;
     case 'downloaded':
+      updateDownloadedVersion = version;
       updateBanner.style.display = 'flex';
       updateBanner.classList.remove('downloading');
       updateText.textContent = `Обновление v${version} готово`;
       updateBtn.textContent = 'Перезапустить';
       updateBtn.style.display = 'block';
-      updateBtn.onclick = () => window.api.installUpdate();
+      updateBtn.disabled = false;
+      updateBtn.title = 'Нажмите, чтобы перезапустить и установить';
+      break;
+    case 'restarting':
+      updateBtn.disabled = true;
+      updateBtn.textContent = 'Перезапуск...';
+      updateText.textContent = 'Закрытие приложения...';
       break;
     case 'error':
     case 'not-available':
     case 'checking':
-      // Don't show banner
+      updateDownloadedVersion = null;
       break;
+  }
+}
+
+async function handleUpdateBtnClick() {
+  if (!updateDownloadedVersion || !window.api) return;
+  try {
+    updateBtn.disabled = true;
+    updateBtn.textContent = 'Перезапуск...';
+    updateText.textContent = 'Закрытие приложения...';
+    await window.api.installUpdate();
+  } catch (e) {
+    updateBtn.disabled = false;
+    updateBtn.textContent = 'Перезапустить';
+    alert('Не удалось перезапустить: ' + (e.message || e));
   }
 }
 
