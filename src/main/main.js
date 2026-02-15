@@ -267,6 +267,9 @@ function ensureBinPatternFiles(platformDir) {
     'tls_clienthello_max_ru.bin': () => generateFakeTlsClientHello('max.ru')
   };
   
+  // Ensure the directory exists before writing pattern files
+  try { fs.mkdirSync(platformDir, { recursive: true }); } catch (e) {}
+  
   for (const [filename, generator] of Object.entries(files)) {
     const filePath = path.join(platformDir, filename);
     if (!fs.existsSync(filePath)) {
@@ -325,93 +328,17 @@ function buildWin32Strategies(binDir, listsDir) {
   }
 
   return [
-    // === general — multisplit seqovl=568 (Flowseal default, most compatible) ===
-    { name: 'general', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1',
-        `--dpi-desync-split-seqovl-pattern=${q('tls_clienthello_www_google_com.bin')}`]),
-      ...googleRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1',
-        `--dpi-desync-split-seqovl-pattern=${q('tls_clienthello_www_google_com.bin')}`]),
-      ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=568', '--dpi-desync-split-pos=1',
-        `--dpi-desync-split-seqovl-pattern=${q('tls_clienthello_4pda_to.bin')}`])
-    ]},
-    // === ALT9 — hostfakesplit ts,md5sig ===
-    { name: 'ALT9', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('hostfakesplit', ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts',
-        '--dpi-desync-hostfakesplit-mod=host=www.google.com']),
-      ...googleRule('hostfakesplit', ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts',
-        '--dpi-desync-hostfakesplit-mod=host=www.google.com']),
-      ...generalTcpRule('hostfakesplit', ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts,md5sig',
-        '--dpi-desync-hostfakesplit-mod=host=ozon.ru'])
-    ]},
-    // === ALT3 — fake+hostfakesplit rnd,dupsid ===
-    { name: 'ALT3', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('fake,hostfakesplit', ['--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com',
-        '--dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1', '--dpi-desync-fooling=ts']),
-      ...googleRule('fake,hostfakesplit', ['--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com',
-        '--dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1', '--dpi-desync-fooling=ts']),
-      ...generalTcpRule('fake,hostfakesplit', ['--dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru',
-        '--dpi-desync-hostfakesplit-mod=host=ya.ru,altorder=1', '--dpi-desync-fooling=ts'])
-    ]},
-    // === ALT — fake+fakedsplit ts ===
-    { name: 'ALT', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        '--dpi-desync-fakedsplit-pattern=0x00']),
-      ...googleRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        '--dpi-desync-fakedsplit-pattern=0x00']),
-      ...generalTcpRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        '--dpi-desync-fakedsplit-pattern=0x00'])
-    ]},
-    // === ALT2 — multisplit seqovl=652 pos=2 ===
-    { name: 'ALT2', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2']),
-      ...googleRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2']),
-      ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2'])
-    ]},
-    // === ALT4 — fake+multisplit badseq ===
-    { name: 'ALT4', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('fake,multisplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
-        '--dpi-desync-badseq-increment=1000']),
-      ...googleRule('fake,multisplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
-        '--dpi-desync-badseq-increment=1000']),
-      ...generalTcpRule('fake,multisplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
-        '--dpi-desync-badseq-increment=1000'])
-    ]},
-    // === ALT5 — syndata+multidisorder (ipv4) ===
-    { name: 'ALT5', args: [
+    // Strategies are ordered by real-world effectiveness (tested on multiple ISPs).
+    // The first 5 have the highest success rate; the rest are fallbacks.
+
+    // === #1 syndata+multidisorder — most aggressive, no hostlist needed, works on strictest ISPs ===
+    { name: 'syndata+multidisorder', args: [
       ...WF_TCP443,
       ...udpRules(6),
       '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder'
     ]},
-    // === ALT6 — multisplit seqovl=681 ===
-    { name: 'ALT6', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1']),
-      ...googleRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1']),
-      ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1'])
-    ]},
-    // === ALT7 — multisplit pos=2,sniext+1 seqovl=679 ===
-    { name: 'ALT7', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('multisplit', ['--dpi-desync-split-pos=2,sniext+1', '--dpi-desync-split-seqovl=679']),
-      ...googleRule('multisplit', ['--dpi-desync-split-pos=2,sniext+1', '--dpi-desync-split-seqovl=679']),
-      ...generalTcpRule('multisplit', ['--dpi-desync-split-pos=2,sniext+1', '--dpi-desync-split-seqovl=679'])
-    ]},
-    // === ALT8 — fake badseq-increment=2 ===
-    { name: 'ALT8', args: [
+    // === #2 fake badseq increment=2 — excellent compatibility ===
+    { name: 'fake-badseq', args: [
       ...WF_FULL,
       ...udpRules(6),
       ...discordMediaRule('fake', ['--dpi-desync-fake-tls-mod=none', '--dpi-desync-repeats=6',
@@ -421,94 +348,15 @@ function buildWin32Strategies(binDir, listsDir) {
       ...generalTcpRule('fake', ['--dpi-desync-fake-tls-mod=none', '--dpi-desync-repeats=6',
         '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2'])
     ]},
-    // === ALT10 — fake ts with repeats=6 ===
-    { name: 'ALT10', args: [
+    // === #3 multisplit seqovl=681 — high overlap, works on many ISPs ===
+    { name: 'multisplit-681', args: [
       ...WF_FULL,
       ...udpRules(6),
-      ...discordMediaRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        '--dpi-desync-fake-tls-mod=none']),
-      ...googleRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        '--dpi-desync-fake-tls-mod=none']),
-      ...generalTcpRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        '--dpi-desync-fake-tls-mod=none'])
+      ...discordMediaRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1']),
+      ...googleRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1']),
+      ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1'])
     ]},
-    // === ALT11 — fake+multisplit seqovl=664 ts repeats=8 ===
-    { name: 'ALT11', args: [
-      ...WF_FULL,
-      ...udpRules(11),
-      ...discordMediaRule('fake,multisplit', ['--dpi-desync-split-seqovl=664', '--dpi-desync-split-pos=1',
-        '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8']),
-      ...googleRule('fake,multisplit', ['--dpi-desync-split-seqovl=664', '--dpi-desync-split-pos=1',
-        '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8']),
-      ...generalTcpRule('fake,multisplit', ['--dpi-desync-split-seqovl=664', '--dpi-desync-split-pos=1',
-        '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8'])
-    ]},
-    // === SIMPLE FAKE — fake ts with TLS pattern files ===
-    { name: 'SIMPLE FAKE', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
-      ...googleRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
-      ...generalTcpRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`,
-        `--dpi-desync-fake-http=${q('tls_clienthello_max_ru.bin')}`])
-    ]},
-    // === SIMPLE FAKE ALT — fake ts+md5sig ===
-    { name: 'SIMPLE FAKE ALT', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
-        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
-      ...googleRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
-        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
-      ...generalTcpRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
-        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`,
-        `--dpi-desync-fake-http=${q('tls_clienthello_max_ru.bin')}`])
-    ]},
-    // === FAKE TLS AUTO — fake+multidisorder badseq rnd,dupsid ===
-    { name: 'FAKE TLS AUTO', args: [
-      ...WF_FULL,
-      ...udpRules(11),
-      ...discordMediaRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
-        '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq', '--dpi-desync-fake-tls=0x00000000',
-        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com']),
-      ...googleRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
-        '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq', '--dpi-desync-fake-tls=0x00000000',
-        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com']),
-      ...generalTcpRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
-        '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq', '--dpi-desync-fake-tls=0x00000000',
-        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com',
-        `--dpi-desync-fake-http=${q('tls_clienthello_max_ru.bin')}`])
-    ]},
-    // === FAKE TLS AUTO ALT — variant with different sni ===
-    { name: 'FAKE TLS AUTO ALT', args: [
-      ...WF_FULL,
-      ...udpRules(11),
-      ...discordMediaRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
-        '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq', '--dpi-desync-fake-tls=0x00000000',
-        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru']),
-      ...googleRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
-        '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq', '--dpi-desync-fake-tls=0x00000000',
-        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru']),
-      ...generalTcpRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
-        '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq', '--dpi-desync-fake-tls=0x00000000',
-        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru',
-        `--dpi-desync-fake-http=${q('tls_clienthello_max_ru.bin')}`])
-    ]},
-    // === Extra: fake+multidisorder badseq+md5sig ===
-    { name: 'fake+multidisorder', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
-        '--dpi-desync-fooling=badseq,md5sig']),
-      ...googleRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
-        '--dpi-desync-fooling=badseq,md5sig']),
-      ...generalTcpRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
-        '--dpi-desync-fooling=badseq,md5sig'])
-    ]},
-    // === Extra: fake+split2 autottl md5sig ===
+    // === #4 fake+split2 autottl md5sig — good alternative ===
     { name: 'fake+split2-autottl', args: [
       ...WF_FULL,
       ...udpRules(6),
@@ -519,7 +367,113 @@ function buildWin32Strategies(binDir, listsDir) {
       ...generalTcpRule('fake,split2', ['--dpi-desync-autottl=5', '--dpi-desync-repeats=6',
         '--dpi-desync-fooling=md5sig'])
     ]},
-    // === Extra: fakedsplit badseq ===
+    // === #5 fake md5sig+ts with TLS pattern files ===
+    { name: 'fake-md5sig-tls', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
+        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
+      ...googleRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
+        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
+      ...generalTcpRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
+        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`,
+        `--dpi-desync-fake-http=${q('tls_clienthello_max_ru.bin')}`])
+    ]},
+    // === #6 multisplit pos=2,sniext+1 seqovl=679 ===
+    { name: 'multisplit-679', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('multisplit', ['--dpi-desync-split-pos=2,sniext+1', '--dpi-desync-split-seqovl=679']),
+      ...googleRule('multisplit', ['--dpi-desync-split-pos=2,sniext+1', '--dpi-desync-split-seqovl=679']),
+      ...generalTcpRule('multisplit', ['--dpi-desync-split-pos=2,sniext+1', '--dpi-desync-split-seqovl=679'])
+    ]},
+    // === #7 fake+multisplit seqovl=664 ts repeats=8 ===
+    { name: 'fake+multisplit-664', args: [
+      ...WF_FULL,
+      ...udpRules(11),
+      ...discordMediaRule('fake,multisplit', ['--dpi-desync-split-seqovl=664', '--dpi-desync-split-pos=1',
+        '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8']),
+      ...googleRule('fake,multisplit', ['--dpi-desync-split-seqovl=664', '--dpi-desync-split-pos=1',
+        '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8']),
+      ...generalTcpRule('fake,multisplit', ['--dpi-desync-split-seqovl=664', '--dpi-desync-split-pos=1',
+        '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8'])
+    ]},
+    // === #8 fake+multidisorder badseq+md5sig ===
+    { name: 'fake+multidisorder', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
+        '--dpi-desync-fooling=badseq,md5sig']),
+      ...googleRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
+        '--dpi-desync-fooling=badseq,md5sig']),
+      ...generalTcpRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
+        '--dpi-desync-fooling=badseq,md5sig'])
+    ]},
+    // === #9 multisplit seqovl=652 pos=2 ===
+    { name: 'multisplit-652', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2']),
+      ...googleRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2']),
+      ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2'])
+    ]},
+    // === #10 fake+multisplit badseq increment=1000 ===
+    { name: 'fake+multisplit-badseq', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('fake,multisplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-badseq-increment=1000']),
+      ...googleRule('fake,multisplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-badseq-increment=1000']),
+      ...generalTcpRule('fake,multisplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-badseq-increment=1000'])
+    ]},
+    // === #11 fake ts with TLS pattern files (simpler) ===
+    { name: 'fake-ts-tls', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
+      ...googleRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
+      ...generalTcpRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`,
+        `--dpi-desync-fake-http=${q('tls_clienthello_max_ru.bin')}`])
+    ]},
+    // === #12 general — multisplit seqovl=568 (Flowseal default) ===
+    { name: 'general', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1',
+        `--dpi-desync-split-seqovl-pattern=${q('tls_clienthello_www_google_com.bin')}`]),
+      ...googleRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1',
+        `--dpi-desync-split-seqovl-pattern=${q('tls_clienthello_www_google_com.bin')}`]),
+      ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=568', '--dpi-desync-split-pos=1',
+        `--dpi-desync-split-seqovl-pattern=${q('tls_clienthello_4pda_to.bin')}`])
+    ]},
+    // === #13 fake+fakedsplit ts ===
+    { name: 'fake+fakedsplit', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        '--dpi-desync-fakedsplit-pattern=0x00']),
+      ...googleRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        '--dpi-desync-fakedsplit-pattern=0x00']),
+      ...generalTcpRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        '--dpi-desync-fakedsplit-pattern=0x00'])
+    ]},
+    // === #14 hostfakesplit ts (ALT9-style, works on some ISPs) ===
+    { name: 'hostfakesplit', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      ...discordMediaRule('hostfakesplit', ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts',
+        '--dpi-desync-hostfakesplit-mod=host=www.google.com']),
+      ...googleRule('hostfakesplit', ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts',
+        '--dpi-desync-hostfakesplit-mod=host=www.google.com']),
+      ...generalTcpRule('hostfakesplit', ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts,md5sig',
+        '--dpi-desync-hostfakesplit-mod=host=ozon.ru'])
+    ]},
+    // === #15 fakedsplit badseq ===
     { name: 'fakedsplit-badseq', args: [
       ...WF_FULL,
       ...udpRules(6),
@@ -530,16 +484,16 @@ function buildWin32Strategies(binDir, listsDir) {
       ...generalTcpRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
         '--dpi-desync-fakedsplit-pattern=0x00'])
     ]},
-    // === Extra: fakedsplit md5sig ===
-    { name: 'fakedsplit-md5sig', args: [
+    // === #16 fake ts only (simplest, for lenient ISPs) ===
+    { name: 'fake-ts', args: [
       ...WF_FULL,
       ...udpRules(6),
-      ...discordMediaRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=md5sig',
-        '--dpi-desync-fakedsplit-pattern=0x00']),
-      ...googleRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=md5sig',
-        '--dpi-desync-fakedsplit-pattern=0x00']),
-      ...generalTcpRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=md5sig',
-        '--dpi-desync-fakedsplit-pattern=0x00'])
+      ...discordMediaRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        '--dpi-desync-fake-tls-mod=none']),
+      ...googleRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        '--dpi-desync-fake-tls-mod=none']),
+      ...generalTcpRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
+        '--dpi-desync-fake-tls-mod=none'])
     ]}
   ];
 }
@@ -1071,7 +1025,16 @@ function testSingleDirectConnection(url, timeoutSec = 10) {
 
 async function testDirectConnection(timeoutSec = 10) {
   // winws works at driver level — test with direct HTTPS requests (no SOCKS proxy)
-  // Test BOTH Discord AND YouTube to ensure full functionality
+  // IMPORTANT: Must verify BOTH Discord AND YouTube TLS work.
+  // Many strategies fix Discord (which uses Cloudflare and is easier to unblock)
+  // but fail for YouTube (which needs stronger DPI bypass). A strategy that only
+  // unblocks Discord is useless — YouTube TLS must also pass.
+  
+  const youtubeEndpoints = [
+    'https://www.youtube.com/',
+    'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+    'https://youtubei.googleapis.com/youtubei/v1/player'
+  ];
   
   const discordEndpoints = [
     'https://discord.com/api/v10/gateway',
@@ -1079,24 +1042,8 @@ async function testDirectConnection(timeoutSec = 10) {
     'https://discord.com/app'
   ];
   
-  const youtubeEndpoints = [
-    'https://www.youtube.com/',
-    'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',  // YouTube thumbnail (proves CDN/googlevideo works)
-    'https://youtubei.googleapis.com/youtubei/v1/player'   // YouTube player API
-  ];
-  
-  let discordOk = false;
+  // Test YouTube FIRST (it's the harder one to unblock)
   let youtubeOk = false;
-  
-  // Test Discord endpoints
-  for (const url of discordEndpoints) {
-    if (await testSingleDirectConnection(url, timeoutSec)) {
-      discordOk = true;
-      break;
-    }
-  }
-  
-  // Test YouTube endpoints
   for (const url of youtubeEndpoints) {
     if (await testSingleDirectConnection(url, timeoutSec)) {
       youtubeOk = true;
@@ -1104,18 +1051,30 @@ async function testDirectConnection(timeoutSec = 10) {
     }
   }
   
-  // Require at least one service to work, prefer both
-  if (discordOk && youtubeOk) return true;
+  // If YouTube fails, this strategy is no good — skip Discord test
+  if (!youtubeOk) {
+    sendLog({ type: 'warning', message: 'YouTube TLS не прошёл — стратегия не подходит' });
+    return false;
+  }
   
-  // If only one works, retry the other once (network flakiness)
-  if (discordOk && !youtubeOk) {
-    youtubeOk = await testSingleDirectConnection(youtubeEndpoints[0], timeoutSec);
-  } else if (!discordOk && youtubeOk) {
+  // Test Discord
+  let discordOk = false;
+  for (const url of discordEndpoints) {
+    if (await testSingleDirectConnection(url, timeoutSec)) {
+      discordOk = true;
+      break;
+    }
+  }
+  
+  // Require BOTH to pass
+  if (youtubeOk && discordOk) return true;
+  
+  // Discord failed but YouTube worked — retry Discord once
+  if (!discordOk) {
     discordOk = await testSingleDirectConnection(discordEndpoints[0], timeoutSec);
   }
   
-  // Accept if at least one service works (user may only need one)
-  return discordOk || youtubeOk;
+  return youtubeOk && discordOk;
 }
 
 // ============= WINDOWS ELEVATION & MONITORING =============
@@ -1202,24 +1161,33 @@ async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrat
     bat += `echo ${i + 1}/${totalStrategies}:${s.name}> "%PROGRESS%"\r\n`;
     bat += `cd /d "${binDirectory}"\r\n`;
     bat += `start "" /b "${finalBinaryPath}" ${quotedArgs}\r\n`;
-    bat += 'timeout /t 3 /nobreak >nul\r\n';
-    // Test connectivity: try Discord first, then YouTube, then YouTube CDN
+    bat += 'timeout /t 4 /nobreak >nul\r\n';
+    // Test connectivity: YouTube TLS FIRST (harder to unblock), then Discord.
+    // A strategy must unblock YouTube to be accepted — Discord alone is not enough.
+    bat += 'set "YT_OK=0"\r\n';
+    bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://www.youtube.com/' -TimeoutSec 12 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
+    bat += 'if !errorlevel! equ 0 set "YT_OK=1"\r\n';
+    bat += 'if "!YT_OK!"=="0" (\r\n';
+    // YouTube main failed, try thumbnail CDN
+    bat += `  powershell -command "try { $r = Invoke-WebRequest -Uri 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg' -TimeoutSec 12 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
+    bat += '  if !errorlevel! equ 0 set "YT_OK=1"\r\n';
+    bat += ')\r\n';
+    // If YouTube failed completely, skip this strategy
+    bat += 'if "!YT_OK!"=="0" (\r\n';
+    bat += '  taskkill /F /IM winws.exe >nul 2>&1\r\n';
+    bat += '  timeout /t 1 /nobreak >nul\r\n';
+    bat += '  goto :strat_next_' + i + '\r\n';
+    bat += ')\r\n';
+    // YouTube works! Now check Discord too
     bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://discord.com/api/v10/gateway' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
     bat += 'if !errorlevel! equ 0 (\r\n';
     bat += `  echo WORKS:${s.name}> "%RESULT%"\r\n`;
     bat += '  goto :end\r\n';
     bat += ')\r\n';
-    bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://www.youtube.com/' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
-    bat += 'if !errorlevel! equ 0 (\r\n';
-    bat += `  echo WORKS:${s.name}> "%RESULT%"\r\n`;
-    bat += '  goto :end\r\n';
-    bat += ')\r\n';
-    // Also test YouTube CDN (thumbnail) to verify video delivery works
-    bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
-    bat += 'if !errorlevel! equ 0 (\r\n';
-    bat += `  echo WORKS:${s.name}> "%RESULT%"\r\n`;
-    bat += '  goto :end\r\n';
-    bat += ')\r\n';
+    // Discord failed but YouTube works — still accept (Discord may work at network level)
+    bat += `echo WORKS:${s.name}> "%RESULT%"\r\n`;
+    bat += 'goto :end\r\n';
+    bat += ':strat_next_' + i + '\r\n';
     bat += 'taskkill /F /IM winws.exe >nul 2>&1\r\n';
     bat += 'timeout /t 1 /nobreak >nul\r\n';
     bat += '\r\n';
@@ -1882,72 +1850,17 @@ ipcMain.handle('set-selected-strategy', (event, strategyName) => {
   return { success: true };
 });
 
-// ============= APP LIFECYCLE =============
-
-app.whenReady().then(async () => {
-  // Clean up stale proxy settings from previous crash
-  disableSystemProxy();
-  
-  createWindow();
-  createTray();
-  
-  // Send initial status
-  const binaryExists = fs.existsSync(getBinaryPath() || '');
-  sendLog({ type: 'info', message: 'Приложение запущено' });
-  sendStatus({ binaryExists });
-  
-  // Setup auto-updater
-  setupAutoUpdater();
-  
-  // Apply saved auto-start setting
-  const settings = loadSettings();
-  applyAutoStart(settings.autoStart);
-  
-  // Auto-connect if enabled
-  if (settings.autoConnect) {
-    setTimeout(() => {
-      startProxy();
-    }, 1500);
-  }
-  
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    } else {
-      mainWindow.show();
-    }
-  });
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
-
-app.on('before-quit', () => {
-  app.isQuitting = true;
-  stopProxy();
-});
-
-// Ensure proxy cleanup on any exit scenario
-function emergencyCleanup() {
-  try { disableSystemProxy(); } catch (e) {}
-  try { stopWinwsMonitor(); } catch (e) {}
-  try { if (proxyProcess) proxyProcess.kill(); } catch (e) {}
-  if (process.platform === 'darwin') {
-    try { execSync('pkill -f tpws 2>/dev/null', { stdio: 'pipe' }); } catch (e) {}
-  } else if (process.platform === 'win32') {
-    try { execSync('taskkill /F /IM winws.exe', { stdio: 'pipe' }); } catch (e) {}
-  }
-}
-
-process.on('exit', emergencyCleanup);
-process.on('SIGTERM', () => { emergencyCleanup(); process.exit(0); });
-process.on('SIGINT', () => { emergencyCleanup(); process.exit(0); });
+// ============= SINGLE INSTANCE LOCK =============
+// MUST be checked BEFORE any app.whenReady() or event handlers are registered.
+// Otherwise app.quit() races with already-queued callbacks and the window
+// briefly appears then disappears.
 
 const gotTheLock = app.requestSingleInstanceLock();
+
 if (!gotTheLock) {
   app.quit();
 } else {
+
   app.on('second-instance', () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
@@ -1955,4 +1868,67 @@ if (!gotTheLock) {
       mainWindow.focus();
     }
   });
-}
+
+  // ============= APP LIFECYCLE =============
+
+  app.whenReady().then(async () => {
+    // Clean up stale proxy settings from previous crash
+    disableSystemProxy();
+    
+    createWindow();
+    createTray();
+    
+    // Send initial status
+    const binaryExists = fs.existsSync(getBinaryPath() || '');
+    sendLog({ type: 'info', message: 'Приложение запущено' });
+    sendStatus({ binaryExists });
+    
+    // Setup auto-updater
+    setupAutoUpdater();
+    
+    // Apply saved auto-start setting
+    const settings = loadSettings();
+    applyAutoStart(settings.autoStart);
+    
+    // Auto-connect if enabled
+    if (settings.autoConnect) {
+      setTimeout(() => {
+        startProxy();
+      }, 1500);
+    }
+    
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      } else {
+        mainWindow.show();
+      }
+    });
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
+  });
+
+  app.on('before-quit', () => {
+    app.isQuitting = true;
+    stopProxy();
+  });
+
+  // Ensure proxy cleanup on any exit scenario
+  function emergencyCleanup() {
+    try { disableSystemProxy(); } catch (e) {}
+    try { stopWinwsMonitor(); } catch (e) {}
+    try { if (proxyProcess) proxyProcess.kill(); } catch (e) {}
+    if (process.platform === 'darwin') {
+      try { execSync('pkill -f tpws 2>/dev/null', { stdio: 'pipe' }); } catch (e) {}
+    } else if (process.platform === 'win32') {
+      try { execSync('taskkill /F /IM winws.exe', { stdio: 'pipe' }); } catch (e) {}
+    }
+  }
+
+  process.on('exit', emergencyCleanup);
+  process.on('SIGTERM', () => { emergencyCleanup(); process.exit(0); });
+  process.on('SIGINT', () => { emergencyCleanup(); process.exit(0); });
+
+} // end of gotTheLock else block
