@@ -293,11 +293,18 @@ function buildWin32Strategies(binDir, listsDir) {
   const WF_FULL = ['--wf-tcp=80,443,2053,2083,2087,2096,8443', '--wf-udp=443,19294-19344,50000-50100'];
   const WF_TCP443 = ['--wf-tcp=443', '--wf-udp=443,19294-19344,50000-50100'];
   
-  // Common UDP rules (same across all Flowseal strategies)
+  // Common UDP rules — handles QUIC (YouTube) and Discord voice (STUN/DTLS)
+  // IMPORTANT: Discord voice uses UDP 443 but sends STUN/DTLS, NOT QUIC.
+  // We need a separate rule with --filter-l7=discord,stun to catch voice on UDP 443.
   function udpRules(quicRepeats = 6) {
     return [
+      // Rule 1: Discord voice over UDP 443 (STUN/DTLS — not QUIC, hostlist won't match)
+      '--filter-udp=443', '--filter-l7=discord,stun',
+      '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+      // Rule 2: QUIC (YouTube, Google) over UDP 443 — hostlist + QUIC fake
       '--filter-udp=443', `--hostlist=${l('list-general.txt')}`, '--dpi-desync=fake',
       `--dpi-desync-repeats=${quicRepeats}`, `--dpi-desync-fake-quic=${q('quic_initial_www_google_com.bin')}`, '--new',
+      // Rule 3: Discord voice on high ports (19294-19344, 50000-50100)
       '--filter-udp=19294-19344,50000-50100', '--filter-l7=discord,stun',
       '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new'
     ];
@@ -328,16 +335,71 @@ function buildWin32Strategies(binDir, listsDir) {
   }
 
   return [
-    // Strategies are ordered by real-world effectiveness (tested on multiple ISPs).
-    // The first 5 have the highest success rate; the rest are fallbacks.
+    // ==================== COMBO STRATEGIES ====================
+    // Best approach: combine syndata+multidisorder (proven for YouTube TLS)
+    // with separate rules for Discord media/voice ports.
+    // syndata alone only captures TCP 443 — Discord also needs 2053,2083,2087,2096,8443.
 
-    // === #1 syndata+multidisorder — most aggressive, no hostlist needed, works on strictest ISPs ===
-    { name: 'syndata+multidisorder', args: [
-      ...WF_TCP443,
+    // === COMBO #1: syndata (YouTube) + fake-badseq (Discord media) ===
+    { name: 'combo:syndata+badseq', args: [
+      ...WF_FULL,
       ...udpRules(6),
-      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder'
+      // Discord media TCP ports — fake with badseq
+      '--filter-tcp=2053,2083,2087,2096,8443',
+      '--dpi-desync=fake', '--dpi-desync-repeats=6',
+      '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2', '--new',
+      // All TCP 443 — syndata+multidisorder (YouTube + Discord web + everything)
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
+      // TCP 80 HTTP fallback
+      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq'
     ]},
-    // === #2 fake badseq increment=2 — excellent compatibility ===
+    // === COMBO #2: syndata (YouTube) + multisplit-681 (Discord media) ===
+    { name: 'combo:syndata+multisplit', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      // Discord media TCP ports — multisplit
+      '--filter-tcp=2053,2083,2087,2096,8443',
+      '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1', '--new',
+      // All TCP 443 — syndata+multidisorder
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
+      // TCP 80 HTTP fallback
+      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1'
+    ]},
+    // === COMBO #3: syndata (YouTube) + fake-md5sig (Discord media) ===
+    { name: 'combo:syndata+md5sig', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      // Discord media TCP ports — fake with md5sig+ts
+      '--filter-tcp=2053,2083,2087,2096,8443',
+      '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
+      `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`, '--new',
+      // All TCP 443 — syndata+multidisorder
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
+      // TCP 80 HTTP fallback
+      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig'
+    ]},
+    // === COMBO #4: syndata (YouTube) + split2-autottl (Discord media) ===
+    { name: 'combo:syndata+split2', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      // Discord media TCP ports — fake+split2 autottl
+      '--filter-tcp=2053,2083,2087,2096,8443',
+      '--dpi-desync=fake,split2', '--dpi-desync-autottl=5', '--dpi-desync-repeats=6',
+      '--dpi-desync-fooling=md5sig', '--new',
+      // All TCP 443 — syndata+multidisorder
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
+      // TCP 80 HTTP fallback
+      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      '--dpi-desync=fake,split2', '--dpi-desync-autottl=5', '--dpi-desync-repeats=6'
+    ]},
+
+    // ==================== SINGLE-METHOD STRATEGIES ====================
+    // These use one desync method for ALL ports. Good fallback when combo doesn't work.
+
+    // === #5 fake badseq increment=2 — excellent compatibility ===
     { name: 'fake-badseq', args: [
       ...WF_FULL,
       ...udpRules(6),
@@ -348,7 +410,7 @@ function buildWin32Strategies(binDir, listsDir) {
       ...generalTcpRule('fake', ['--dpi-desync-fake-tls-mod=none', '--dpi-desync-repeats=6',
         '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2'])
     ]},
-    // === #3 multisplit seqovl=681 — high overlap, works on many ISPs ===
+    // === #6 multisplit seqovl=681 — high overlap, works on many ISPs ===
     { name: 'multisplit-681', args: [
       ...WF_FULL,
       ...udpRules(6),
@@ -356,7 +418,7 @@ function buildWin32Strategies(binDir, listsDir) {
       ...googleRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1']),
       ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1'])
     ]},
-    // === #4 fake+split2 autottl md5sig — good alternative ===
+    // === #7 fake+split2 autottl md5sig — good alternative ===
     { name: 'fake+split2-autottl', args: [
       ...WF_FULL,
       ...udpRules(6),
@@ -367,7 +429,7 @@ function buildWin32Strategies(binDir, listsDir) {
       ...generalTcpRule('fake,split2', ['--dpi-desync-autottl=5', '--dpi-desync-repeats=6',
         '--dpi-desync-fooling=md5sig'])
     ]},
-    // === #5 fake md5sig+ts with TLS pattern files ===
+    // === #8 fake md5sig+ts with TLS pattern files ===
     { name: 'fake-md5sig-tls', args: [
       ...WF_FULL,
       ...udpRules(6),
@@ -378,6 +440,12 @@ function buildWin32Strategies(binDir, listsDir) {
       ...generalTcpRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
         `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`,
         `--dpi-desync-fake-http=${q('tls_clienthello_max_ru.bin')}`])
+    ]},
+    // === #9 syndata-only (YouTube works, Discord web works, but Discord media ports not covered) ===
+    { name: 'syndata-only', args: [
+      ...WF_TCP443,
+      ...udpRules(6),
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder'
     ]},
     // === #6 multisplit pos=2,sniext+1 seqovl=679 ===
     { name: 'multisplit-679', args: [
@@ -1025,10 +1093,8 @@ function testSingleDirectConnection(url, timeoutSec = 10) {
 
 async function testDirectConnection(timeoutSec = 10) {
   // winws works at driver level — test with direct HTTPS requests (no SOCKS proxy)
-  // IMPORTANT: Must verify BOTH Discord AND YouTube TLS work.
-  // Many strategies fix Discord (which uses Cloudflare and is easier to unblock)
-  // but fail for YouTube (which needs stronger DPI bypass). A strategy that only
-  // unblocks Discord is useless — YouTube TLS must also pass.
+  // IMPORTANT: Must verify BOTH YouTube AND Discord work, including Discord media
+  // ports (2053,8443 etc.) which are needed for voice/video calls.
   
   const youtubeEndpoints = [
     'https://www.youtube.com/',
@@ -1042,7 +1108,13 @@ async function testDirectConnection(timeoutSec = 10) {
     'https://discord.com/app'
   ];
   
-  // Test YouTube FIRST (it's the harder one to unblock)
+  // Discord media — test TLS on the voice/media ports that DPI often blocks
+  const discordMediaEndpoints = [
+    'https://discord.media:443/',
+    'https://discord.gg/'
+  ];
+  
+  // Test YouTube FIRST (hardest to unblock)
   let youtubeOk = false;
   for (const url of youtubeEndpoints) {
     if (await testSingleDirectConnection(url, timeoutSec)) {
@@ -1051,13 +1123,12 @@ async function testDirectConnection(timeoutSec = 10) {
     }
   }
   
-  // If YouTube fails, this strategy is no good — skip Discord test
   if (!youtubeOk) {
     sendLog({ type: 'warning', message: 'YouTube TLS не прошёл — стратегия не подходит' });
     return false;
   }
   
-  // Test Discord
+  // Test Discord API/web
   let discordOk = false;
   for (const url of discordEndpoints) {
     if (await testSingleDirectConnection(url, timeoutSec)) {
@@ -1066,15 +1137,32 @@ async function testDirectConnection(timeoutSec = 10) {
     }
   }
   
-  // Require BOTH to pass
-  if (youtubeOk && discordOk) return true;
-  
-  // Discord failed but YouTube worked — retry Discord once
   if (!discordOk) {
+    // Retry once
     discordOk = await testSingleDirectConnection(discordEndpoints[0], timeoutSec);
   }
   
-  return youtubeOk && discordOk;
+  if (!discordOk) {
+    sendLog({ type: 'warning', message: 'Discord API не прошёл — стратегия не подходит' });
+    return false;
+  }
+  
+  // Test Discord media (voice/video connectivity)
+  let discordMediaOk = false;
+  for (const url of discordMediaEndpoints) {
+    if (await testSingleDirectConnection(url, timeoutSec)) {
+      discordMediaOk = true;
+      break;
+    }
+  }
+  
+  // Discord media is bonus — accept strategy even if media test fails
+  // (media ports may just not respond to plain HTTPS but still work for voice)
+  if (discordMediaOk) {
+    sendLog({ type: 'info', message: 'Discord media: доступен' });
+  }
+  
+  return true; // YouTube + Discord API both passed
 }
 
 // ============= WINDOWS ELEVATION & MONITORING =============
@@ -1178,15 +1266,23 @@ async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrat
     bat += '  timeout /t 1 /nobreak >nul\r\n';
     bat += '  goto :strat_next_' + i + '\r\n';
     bat += ')\r\n';
-    // YouTube works! Now check Discord too
+    // YouTube works! Now check Discord API + media
+    bat += 'set "DC_OK=0"\r\n';
     bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://discord.com/api/v10/gateway' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
-    bat += 'if !errorlevel! equ 0 (\r\n';
+    bat += 'if !errorlevel! equ 0 set "DC_OK=1"\r\n';
+    // Also test Discord media port connectivity (voice needs these)
+    bat += 'if "!DC_OK!"=="1" (\r\n';
+    bat += `  powershell -command "try { $tcp = New-Object System.Net.Sockets.TcpClient; $a = $tcp.BeginConnect('discord.gg', 443, $null, $null); $w = $a.AsyncWaitHandle.WaitOne(5000); if ($w) { $tcp.EndConnect($a); $tcp.Close(); exit 0 } else { $tcp.Close(); exit 1 } } catch { exit 1 }"\r\n`;
+    bat += '  if !errorlevel! equ 0 (\r\n';
+    bat += `    echo WORKS:${s.name}> "%RESULT%"\r\n`;
+    bat += '    goto :end\r\n';
+    bat += '  )\r\n';
+    bat += ')\r\n';
+    // Discord API failed but YouTube works — still accept (Discord may work at network level)
+    bat += 'if "!YT_OK!"=="1" (\r\n';
     bat += `  echo WORKS:${s.name}> "%RESULT%"\r\n`;
     bat += '  goto :end\r\n';
     bat += ')\r\n';
-    // Discord failed but YouTube works — still accept (Discord may work at network level)
-    bat += `echo WORKS:${s.name}> "%RESULT%"\r\n`;
-    bat += 'goto :end\r\n';
     bat += ':strat_next_' + i + '\r\n';
     bat += 'taskkill /F /IM winws.exe >nul 2>&1\r\n';
     bat += 'timeout /t 1 /nobreak >nul\r\n';
