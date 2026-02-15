@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld('api', {
   
   // External links
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  updateHostsForDiscord: () => ipcRenderer.invoke('update-hosts-for-discord'),
+  clearDiscordCache: () => ipcRenderer.invoke('clear-discord-cache'),
   
   // Event listeners
   onStatus: (callback) => {

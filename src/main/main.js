@@ -3,6 +3,7 @@ const path = require('path');
 const { spawn, exec, execSync } = require('child_process');
 const fs = require('fs');
 const https = require('https');
+const tls = require('tls');
 const sudo = require('sudo-prompt');
 const { autoUpdater } = require('electron-updater');
 
@@ -135,7 +136,7 @@ const HOST_LIST_GENERAL = [
   'discord.gifts', 'discord.gg', 'discord.media', 'discord.new', 'discord.store', 'discord.status',
   'discord-activities.com', 'discordactivities.com', 'discordapp.com', 'discordapp.net',
   'discordcdn.com', 'discordmerch.com', 'discordpartygames.com', 'discordsays.com',
-  'discordsez.com', 'discordstatus.com', 'frankerfacez.com', 'ffzap.com', 'betterttv.net',
+  'discordsez.com', 'discordstatus.com', 'updates.discord.com', 'frankerfacez.com', 'ffzap.com', 'betterttv.net',
   '7tv.app', '7tv.io', 'localizeapi.com',
   // YouTube / Google
   'youtube.com', 'youtu.be', 'yt.be', 'ytimg.com', 'googlevideo.com', 'youtube-nocookie.com',
@@ -150,6 +151,16 @@ const HOST_LIST_GOOGLE = [
   'googleapis.com', 'gstatic.com', 'ggpht.com', 'googleusercontent.com'
 ].join('\n');
 
+// Discord-only list: apply gentler desync to Discord TLS first, syndata for the rest
+const HOST_LIST_DISCORD = [
+  'discord.com', 'discord.gg', 'discordapp.com', 'discordapp.net', 'discord.media',
+  'discord.co', 'discord.gift', 'discord.gifts', 'discord.new', 'discord.store', 'discord.status',
+  'discord.app', 'discord.design', 'discord.dev', 'discord-activities.com', 'discordactivities.com',
+  'discordcdn.com', 'discordmerch.com', 'discordpartygames.com', 'discordsays.com', 'discordsez.com',
+  'discordstatus.com', 'dis.gd', 'gateway.discord.gg', 'cdn.discordapp.com', 'dl.discordapp.net',
+  'updates.discord.com', 'discord-attachments-uploads-prd.storage.googleapis.com'
+].join('\n');
+
 function ensureHostLists() {
   if (hostListsDir && fs.existsSync(hostListsDir)) return hostListsDir;
   
@@ -158,6 +169,7 @@ function ensureHostLists() {
   
   fs.writeFileSync(path.join(hostListsDir, 'list-general.txt'), HOST_LIST_GENERAL, 'utf8');
   fs.writeFileSync(path.join(hostListsDir, 'list-google.txt'), HOST_LIST_GOOGLE, 'utf8');
+  fs.writeFileSync(path.join(hostListsDir, 'list-discord.txt'), HOST_LIST_DISCORD, 'utf8');
   
   return hostListsDir;
 }
@@ -293,20 +305,21 @@ function buildWin32Strategies(binDir, listsDir) {
   const WF_FULL = ['--wf-tcp=80,443,2053,2083,2087,2096,8443', '--wf-udp=443,19294-19344,50000-50100'];
   const WF_TCP443 = ['--wf-tcp=443', '--wf-udp=443,19294-19344,50000-50100'];
   
-  // Common UDP rules — handles QUIC (YouTube) and Discord voice (STUN/DTLS)
-  // IMPORTANT: Discord voice uses UDP 443 but sends STUN/DTLS, NOT QUIC.
-  // We need a separate rule with --filter-l7=discord,stun to catch voice on UDP 443.
+  // Common UDP rules — QUIC first (hostlist), then Discord voice high ports.
+  // Order matches zapret: UDP 443 hostlist (QUIC), then 19294-19344,50000-50100 (discord,stun).
   function udpRules(quicRepeats = 6) {
     return [
-      // Rule 1: Discord voice over UDP 443 (STUN/DTLS — not QUIC, hostlist won't match)
-      '--filter-udp=443', '--filter-l7=discord,stun',
-      '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-      // Rule 2: QUIC (YouTube, Google) over UDP 443 — hostlist + QUIC fake
       '--filter-udp=443', `--hostlist=${l('list-general.txt')}`, '--dpi-desync=fake',
       `--dpi-desync-repeats=${quicRepeats}`, `--dpi-desync-fake-quic=${q('quic_initial_www_google_com.bin')}`, '--new',
-      // Rule 3: Discord voice on high ports (19294-19344, 50000-50100)
       '--filter-udp=19294-19344,50000-50100', '--filter-l7=discord,stun',
       '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new'
+    ];
+  }
+  // Same as udpRules but also catch Discord/STUN on UDP 443 (in case hostlist misses)
+  function udpRulesWithDiscord443(quicRepeats = 6) {
+    return [
+      '--filter-udp=443', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
+      ...udpRules(quicRepeats)
     ];
   }
   
@@ -314,6 +327,14 @@ function buildWin32Strategies(binDir, listsDir) {
   function discordMediaRule(method, extraArgs = []) {
     return [
       '--filter-tcp=2053,2083,2087,2096,8443', '--hostlist-domains=discord.media',
+      `--dpi-desync=${method}`, ...extraArgs, '--new'
+    ];
+  }
+  
+  // Discord-only TCP 443 rule — apply first so Discord gets gentle desync, syndata for the rest
+  function discordTcp443Rule(method, extraArgs = []) {
+    return [
+      '--filter-tcp=443', `--hostlist=${l('list-discord.txt')}`,
       `--dpi-desync=${method}`, ...extraArgs, '--new'
     ];
   }
@@ -334,72 +355,22 @@ function buildWin32Strategies(binDir, listsDir) {
     ];
   }
 
+  // ALT2 from Flowseal/zapret-discord-youtube — multisplit 652 pos=2 with pattern (often works for Discord)
+  const alt2Pattern = q('tls_clienthello_www_google_com.bin');
+  const ALT2_ARGS = [
+    ...WF_FULL,
+    ...udpRules(6),
+    ...discordMediaRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2', `--dpi-desync-split-seqovl-pattern=${alt2Pattern}`]),
+    ...googleRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2', `--dpi-desync-split-seqovl-pattern=${alt2Pattern}`]),
+    ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2', `--dpi-desync-split-seqovl-pattern=${alt2Pattern}`])
+  ];
+
   return [
-    // ==================== COMBO STRATEGIES ====================
-    // Best approach: combine syndata+multidisorder (proven for YouTube TLS)
-    // with separate rules for Discord media/voice ports.
-    // syndata alone only captures TCP 443 — Discord also needs 2053,2083,2087,2096,8443.
+    // ==================== SINGLE-METHOD FIRST ====================
 
-    // === COMBO #1: syndata (YouTube) + fake-badseq (Discord media) ===
-    { name: 'combo:syndata+badseq', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      // Discord media TCP ports — fake with badseq
-      '--filter-tcp=2053,2083,2087,2096,8443',
-      '--dpi-desync=fake', '--dpi-desync-repeats=6',
-      '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2', '--new',
-      // All TCP 443 — syndata+multidisorder (YouTube + Discord web + everything)
-      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
-      // TCP 80 HTTP fallback
-      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
-      '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq'
-    ]},
-    // === COMBO #2: syndata (YouTube) + multisplit-681 (Discord media) ===
-    { name: 'combo:syndata+multisplit', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      // Discord media TCP ports — multisplit
-      '--filter-tcp=2053,2083,2087,2096,8443',
-      '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1', '--new',
-      // All TCP 443 — syndata+multidisorder
-      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
-      // TCP 80 HTTP fallback
-      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
-      '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1'
-    ]},
-    // === COMBO #3: syndata (YouTube) + fake-md5sig (Discord media) ===
-    { name: 'combo:syndata+md5sig', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      // Discord media TCP ports — fake with md5sig+ts
-      '--filter-tcp=2053,2083,2087,2096,8443',
-      '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
-      `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`, '--new',
-      // All TCP 443 — syndata+multidisorder
-      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
-      // TCP 80 HTTP fallback
-      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
-      '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig'
-    ]},
-    // === COMBO #4: syndata (YouTube) + split2-autottl (Discord media) ===
-    { name: 'combo:syndata+split2', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      // Discord media TCP ports — fake+split2 autottl
-      '--filter-tcp=2053,2083,2087,2096,8443',
-      '--dpi-desync=fake,split2', '--dpi-desync-autottl=5', '--dpi-desync-repeats=6',
-      '--dpi-desync-fooling=md5sig', '--new',
-      // All TCP 443 — syndata+multidisorder
-      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
-      // TCP 80 HTTP fallback
-      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
-      '--dpi-desync=fake,split2', '--dpi-desync-autottl=5', '--dpi-desync-repeats=6'
-    ]},
-
-    // ==================== SINGLE-METHOD STRATEGIES ====================
-    // These use one desync method for ALL ports. Good fallback when combo doesn't work.
-
-    // === #5 fake badseq increment=2 — excellent compatibility ===
+    // === ALT2 (zapret) — multisplit 652 pos=2 + pattern, часто работает для Discord ===
+    { name: 'ALT2', args: ALT2_ARGS },
+    // === #1 fake badseq — one method for all, best compatibility ===
     { name: 'fake-badseq', args: [
       ...WF_FULL,
       ...udpRules(6),
@@ -410,7 +381,7 @@ function buildWin32Strategies(binDir, listsDir) {
       ...generalTcpRule('fake', ['--dpi-desync-fake-tls-mod=none', '--dpi-desync-repeats=6',
         '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2'])
     ]},
-    // === #6 multisplit seqovl=681 — high overlap, works on many ISPs ===
+    // === #2 multisplit 681 ===
     { name: 'multisplit-681', args: [
       ...WF_FULL,
       ...udpRules(6),
@@ -418,7 +389,7 @@ function buildWin32Strategies(binDir, listsDir) {
       ...googleRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1']),
       ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1'])
     ]},
-    // === #7 fake+split2 autottl md5sig — good alternative ===
+    // === #3 fake+split2 autottl ===
     { name: 'fake+split2-autottl', args: [
       ...WF_FULL,
       ...udpRules(6),
@@ -429,7 +400,94 @@ function buildWin32Strategies(binDir, listsDir) {
       ...generalTcpRule('fake,split2', ['--dpi-desync-autottl=5', '--dpi-desync-repeats=6',
         '--dpi-desync-fooling=md5sig'])
     ]},
-    // === #8 fake md5sig+ts with TLS pattern files ===
+    // === #4 syndata-only (all 443) — often breaks Discord WebSocket, try after others ===
+    { name: 'syndata-only', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
+      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      '--dpi-desync=fake', '--dpi-desync-repeats=6'
+    ]},
+
+    // ==================== COMBO STRATEGIES ====================
+
+    // === COMBO: Discord minimal (no fooling) + syndata YouTube ===
+    { name: 'combo:discord-minimal', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      '--filter-tcp=2053,2083,2087,2096,8443',
+      '--dpi-desync=fake', '--dpi-desync-repeats=4', '--dpi-desync-fake-tls-mod=none', '--new',
+      ...discordTcp443Rule('fake', ['--dpi-desync-repeats=4', '--dpi-desync-fake-tls-mod=none']),
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
+      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      '--dpi-desync=fake', '--dpi-desync-repeats=4', '--dpi-desync-fake-tls-mod=none'
+    ]},
+    // === COMBO: Discord badseq + syndata YouTube ===
+    { name: 'combo:syndata+badseq', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      // Discord media TCP ports — fake with badseq
+      '--filter-tcp=2053,2083,2087,2096,8443',
+      '--dpi-desync=fake', '--dpi-desync-repeats=6',
+      '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2', '--new',
+      // Discord TCP 443 FIRST (hostlist) — gentle desync so Discord app works
+      ...discordTcp443Rule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2']),
+      // All other TCP 443 — syndata+multidisorder (YouTube + everything else)
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
+      // TCP 80 HTTP fallback
+      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq'
+    ]},
+    // === COMBO #2: Discord-first (multisplit for Discord 443) + syndata (YouTube/rest) ===
+    { name: 'combo:syndata+multisplit', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      // Discord media TCP ports — multisplit
+      '--filter-tcp=2053,2083,2087,2096,8443',
+      '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1', '--new',
+      // Discord TCP 443 first
+      ...discordTcp443Rule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1']),
+      // All other TCP 443 — syndata
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
+      // TCP 80
+      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1'
+    ]},
+    // === COMBO #3: Discord-first (fake md5sig for Discord 443) + syndata (YouTube/rest) ===
+    { name: 'combo:syndata+md5sig', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      // Discord media TCP ports — fake md5sig+ts
+      '--filter-tcp=2053,2083,2087,2096,8443',
+      '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
+      `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`, '--new',
+      // Discord TCP 443 first
+      ...discordTcp443Rule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
+        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
+      // All other TCP 443 — syndata
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
+      // TCP 80
+      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig'
+    ]},
+    // === COMBO #4: Discord-first (split2 for Discord 443) + syndata (YouTube/rest) ===
+    { name: 'combo:syndata+split2', args: [
+      ...WF_FULL,
+      ...udpRules(6),
+      // Discord media TCP ports — fake+split2 autottl
+      '--filter-tcp=2053,2083,2087,2096,8443',
+      '--dpi-desync=fake,split2', '--dpi-desync-autottl=5', '--dpi-desync-repeats=6',
+      '--dpi-desync-fooling=md5sig', '--new',
+      // Discord TCP 443 first
+      ...discordTcp443Rule('fake,split2', ['--dpi-desync-autottl=5', '--dpi-desync-repeats=6', '--dpi-desync-fooling=md5sig']),
+      // All other TCP 443 — syndata
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
+      // TCP 80
+      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      '--dpi-desync=fake,split2', '--dpi-desync-autottl=5', '--dpi-desync-repeats=6'
+    ]},
+
+    // === fake md5sig+ts with TLS pattern files ===
     { name: 'fake-md5sig-tls', args: [
       ...WF_FULL,
       ...udpRules(6),
@@ -441,13 +499,7 @@ function buildWin32Strategies(binDir, listsDir) {
         `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`,
         `--dpi-desync-fake-http=${q('tls_clienthello_max_ru.bin')}`])
     ]},
-    // === #9 syndata-only (YouTube works, Discord web works, but Discord media ports not covered) ===
-    { name: 'syndata-only', args: [
-      ...WF_TCP443,
-      ...udpRules(6),
-      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder'
-    ]},
-    // === #6 multisplit pos=2,sniext+1 seqovl=679 ===
+    // === multisplit pos=2,sniext+1 seqovl=679 ===
     { name: 'multisplit-679', args: [
       ...WF_FULL,
       ...udpRules(6),
@@ -1079,12 +1131,57 @@ function testSingleDirectConnection(url, timeoutSec = 10) {
         timeout: timeoutSec * 1000,
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36' }
       }, (res) => {
-        // Consume response data to free up memory
         res.resume();
         resolve(res.statusCode > 0 && res.statusCode < 500);
       });
       req.on('error', () => resolve(false));
       req.on('timeout', () => { req.destroy(); resolve(false); });
+    } catch (e) {
+      resolve(false);
+    }
+  });
+}
+
+// Test WebSocket handshake to Discord gateway — same as Discord app does. If this fails, app won't load.
+function testDiscordWebSocketGateway(timeoutSec = 12) {
+  return new Promise((resolve) => {
+    const host = 'gateway.discord.gg';
+    const timeoutMs = timeoutSec * 1000;
+    let resolved = false;
+    const done = (ok) => {
+      if (resolved) return;
+      resolved = true;
+      try { socket.destroy(); } catch (e) {}
+      resolve(ok);
+    };
+    let socket;
+    try {
+      socket = tls.connect({
+        host,
+        port: 443,
+        servername: host,
+        rejectUnauthorized: true
+      }, () => {
+        const key = Buffer.allocUnsafe(16);
+        for (let i = 0; i < 16; i++) key[i] = Math.floor(Math.random() * 256);
+        const req =
+          `GET /?v=10&encoding=json HTTP/1.1\r\n` +
+          `Host: ${host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
+          `Sec-WebSocket-Key: ${key.toString('base64')}\r\nSec-WebSocket-Version: 13\r\n\r\n`;
+        socket.write(req);
+      });
+      socket.setEncoding('utf8');
+      let data = '';
+      socket.on('data', (chunk) => {
+        data += chunk;
+        if (data.includes('\r\n\r\n')) {
+          const statusLine = data.split('\r\n')[0];
+          done(statusLine.includes('101'));
+        }
+      });
+      socket.on('error', () => done(false));
+      socket.on('timeout', () => done(false));
+      socket.setTimeout(timeoutMs);
     } catch (e) {
       resolve(false);
     }
@@ -1147,7 +1244,14 @@ async function testDirectConnection(timeoutSec = 10) {
     return false;
   }
   
-  // Test Discord media (voice/video connectivity)
+  // CRITICAL: Test WebSocket to gateway — Discord app uses this to load. If broken, app stays on "Проблемы с подключением".
+  const gatewayWsOk = await testDiscordWebSocketGateway(timeoutSec);
+  if (!gatewayWsOk) {
+    sendLog({ type: 'warning', message: 'Discord gateway (WebSocket) не прошёл — приложение не загрузится' });
+    return false;
+  }
+  
+  // Test Discord media (voice/video)
   let discordMediaOk = false;
   for (const url of discordMediaEndpoints) {
     if (await testSingleDirectConnection(url, timeoutSec)) {
@@ -1155,14 +1259,11 @@ async function testDirectConnection(timeoutSec = 10) {
       break;
     }
   }
-  
-  // Discord media is bonus — accept strategy even if media test fails
-  // (media ports may just not respond to plain HTTPS but still work for voice)
   if (discordMediaOk) {
     sendLog({ type: 'info', message: 'Discord media: доступен' });
   }
   
-  return true; // YouTube + Discord API both passed
+  return true; // YouTube + Discord API + Discord WebSocket all passed
 }
 
 // ============= WINDOWS ELEVATION & MONITORING =============
@@ -1210,16 +1311,46 @@ function stopWinwsMonitor() {
   }
 }
 
+// PowerShell script to test Discord gateway WebSocket handshake (used by elevated batch)
+const PS_TEST_GATEWAY_WS = [
+  '$hostname = "gateway.discord.gg"; $port = 443; $timeoutMs = 12000',
+  'try {',
+  '  $tcp = New-Object System.Net.Sockets.TcpClient',
+  '  $ar = $tcp.BeginConnect($hostname, $port, $null, $null)',
+  '  if (-not $ar.AsyncWaitHandle.WaitOne($timeoutMs)) { $tcp.Close(); exit 1 }',
+  '  $tcp.EndConnect($ar)',
+  '  $stream = $tcp.GetStream()',
+  '  $ssl = New-Object System.Net.Security.SslStream($stream, $false, { $true })',
+  '  $ssl.ReadTimeout = $timeoutMs; $ssl.WriteTimeout = $timeoutMs',
+  '  $ssl.AuthenticateAsClient($hostname)',
+  '  $key = [Convert]::ToBase64String((1..16 | ForEach-Object { Get-Random -Maximum 256 -Minimum 0 }) -as [byte[]])',
+  "  $req = \"GET /?v=10&encoding=json HTTP/1.1`r`nHost: $hostname`r`nUpgrade: websocket`r`nConnection: Upgrade`r`nSec-WebSocket-Key: $key`r`nSec-WebSocket-Version: 13`r`n`r`n\"",
+  '  $buf = [System.Text.Encoding]::UTF8.GetBytes($req)',
+  '  $ssl.Write($buf, 0, $buf.Length)',
+  '  $readBuf = New-Object byte[] 512',
+  '  $read = $ssl.Read($readBuf, 0, 512)',
+  '  $ssl.Close(); $tcp.Close()',
+  '  $resp = [System.Text.Encoding]::UTF8.GetString($readBuf, 0, $read)',
+  '  if ($resp -match "101") { exit 0 }',
+  '} catch {}',
+  'exit 1'
+].join('\r\n');
+
 async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrategies) {
   const binDirectory = path.dirname(finalBinaryPath);
   const tempDir = app.getPath('temp');
   const resultFile = path.join(tempDir, 'unblock-result.txt');
   const progressFile = path.join(tempDir, 'unblock-progress.txt');
   const batchFile = path.join(tempDir, 'unblock-test.bat');
+  const wsTestScript = path.join(tempDir, 'unblock-test-ws.ps1');
 
   // Clean old temp files
   try { fs.unlinkSync(resultFile); } catch(e) {}
   try { fs.unlinkSync(progressFile); } catch(e) {}
+  try { fs.unlinkSync(wsTestScript); } catch(e) {}
+  fs.writeFileSync(wsTestScript, PS_TEST_GATEWAY_WS, 'utf8');
+
+  const hostsUpdateScript = path.join(tempDir, 'unblock-pro-update-hosts.ps1');
 
   // Generate batch script that tests all strategies with one UAC prompt
   let bat = '@echo off\r\n';
@@ -1228,6 +1359,11 @@ async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrat
   bat += `set "PROGRESS=${progressFile}"\r\n`;
   bat += 'taskkill /F /IM winws.exe >nul 2>&1\r\n';
   bat += 'timeout /t 1 /nobreak >nul\r\n';
+  bat += ':: Update hosts and clear Discord cache at each connection start\r\n';
+  bat += `if exist "${hostsUpdateScript}" powershell -ExecutionPolicy Bypass -NoProfile -File "${hostsUpdateScript}"\r\n`;
+  bat += 'rd /s /q "%APPDATA%\\discord\\Cache" 2>nul\r\n';
+  bat += 'rd /s /q "%APPDATA%\\discord\\Code Cache" 2>nul\r\n';
+  bat += 'rd /s /q "%APPDATA%\\discord\\GPUCache" 2>nul\r\n';
   bat += '\r\n';
 
   for (let i = 0; i < strategies.length; i++) {
@@ -1266,23 +1402,22 @@ async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrat
     bat += '  timeout /t 1 /nobreak >nul\r\n';
     bat += '  goto :strat_next_' + i + '\r\n';
     bat += ')\r\n';
-    // YouTube works! Now check Discord API + media
+    // Require Discord API
     bat += 'set "DC_OK=0"\r\n';
     bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://discord.com/api/v10/gateway' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
     bat += 'if !errorlevel! equ 0 set "DC_OK=1"\r\n';
-    // Also test Discord media port connectivity (voice needs these)
-    bat += 'if "!DC_OK!"=="1" (\r\n';
-    bat += `  powershell -command "try { $tcp = New-Object System.Net.Sockets.TcpClient; $a = $tcp.BeginConnect('discord.gg', 443, $null, $null); $w = $a.AsyncWaitHandle.WaitOne(5000); if ($w) { $tcp.EndConnect($a); $tcp.Close(); exit 0 } else { $tcp.Close(); exit 1 } } catch { exit 1 }"\r\n`;
-    bat += '  if !errorlevel! equ 0 (\r\n';
-    bat += `    echo WORKS:${s.name}> "%RESULT%"\r\n`;
-    bat += '    goto :end\r\n';
-    bat += '  )\r\n';
+    bat += 'if "!DC_OK!"=="0" (\r\n';
+    bat += '  taskkill /F /IM winws.exe >nul 2>&1\r\n';
+    bat += '  goto :strat_next_' + i + '\r\n';
     bat += ')\r\n';
-    // Discord API failed but YouTube works — still accept (Discord may work at network level)
-    bat += 'if "!YT_OK!"=="1" (\r\n';
-    bat += `  echo WORKS:${s.name}> "%RESULT%"\r\n`;
-    bat += '  goto :end\r\n';
+    // Require Discord gateway WebSocket (app won\'t load without it)
+    bat += `powershell -ExecutionPolicy Bypass -File "${wsTestScript.replace(/\\/g, '\\\\')}"\r\n`;
+    bat += 'if !errorlevel! neq 0 (\r\n';
+    bat += '  taskkill /F /IM winws.exe >nul 2>&1\r\n';
+    bat += '  goto :strat_next_' + i + '\r\n';
     bat += ')\r\n';
+    bat += `echo WORKS:${s.name}> "%RESULT%"\r\n`;
+    bat += 'goto :end\r\n';
     bat += ':strat_next_' + i + '\r\n';
     bat += 'taskkill /F /IM winws.exe >nul 2>&1\r\n';
     bat += 'timeout /t 1 /nobreak >nul\r\n';
@@ -1463,8 +1598,24 @@ async function startProxy() {
   
   sendLog({ type: 'info', message: `Начинаю перебор ${totalStrategies} стратегий...` });
 
-  // Windows: check admin rights, kill existing winws.exe, verify WinDivert
+  // Windows: update hosts and clear Discord cache at each connection start, then check admin
   if (process.platform === 'win32') {
+    const tempDir = app.getPath('temp');
+    await prepareHostsUpdateForBatch(tempDir);
+    if (isRunningAsAdmin()) {
+      const psPath = path.join(tempDir, 'unblock-pro-update-hosts.ps1');
+      if (fs.existsSync(psPath)) {
+        try { execSync(`powershell -ExecutionPolicy Bypass -NoProfile -File "${psPath}"`, { stdio: 'pipe' }); } catch (e) {}
+      }
+      const discordBase = path.join(process.env.APPDATA || '', 'discord');
+      for (const d of ['Cache', 'Code Cache', 'GPUCache']) {
+        try {
+          const full = path.join(discordBase, d);
+          if (fs.existsSync(full)) fs.rmSync(full, { recursive: true });
+        } catch (e) {}
+      }
+      sendLog({ type: 'info', message: 'Hosts и кэш Discord обновлены' });
+    }
     // If not running as admin, use elevated batch approach (single UAC prompt)
     if (!isRunningAsAdmin()) {
       sendLog({ type: 'info', message: 'Нет прав администратора — запуск через UAC...' });
@@ -1897,6 +2048,117 @@ ipcMain.handle('open-external', (event, url) => {
   if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
     shell.openExternal(url);
   }
+});
+
+// Update hosts file for Discord voice — Flowseal: "для подключения к голосовому чату Discord"
+const HOSTS_URL = 'https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/main/.service/hosts';
+const HOSTS_MARKER = '# UnblockPro Discord/Telegram hosts';
+function getHostsPath() {
+  return path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'drivers', 'etc', 'hosts');
+}
+function buildHostsUpdateScript(hostsPath, tempFile) {
+  return [
+    '$hostsPath = "' + hostsPath.replace(/"/g, '""') + '"',
+    '$addPath = "' + tempFile.replace(/\\/g, '\\\\').replace(/"/g, '""') + '"',
+    'if (-not (Test-Path $addPath)) { exit 1 }',
+    'if (-not (Test-Path $hostsPath)) { exit 2 }',
+    '$toAdd = (Get-Content $addPath -Raw).TrimEnd()',
+    '$current = Get-Content $hostsPath -Raw -ErrorAction SilentlyContinue',
+    'if (-not $current) { $current = "" }',
+    'if ($current.IndexOf("' + HOSTS_MARKER.replace(/'/g, "''") + '") -ge 0) { exit 0 }',
+    '$block = "`r`n`r`n" + "' + HOSTS_MARKER.replace(/'/g, "''") + '" + "`r`n" + $toAdd',
+    'try { [System.IO.File]::AppendAllText($hostsPath, $block, [System.Text.Encoding]::ASCII) } catch { exit 3 }',
+    'exit 0'
+  ].join('; ');
+}
+async function prepareHostsUpdateForBatch(tempDir) {
+  const tempFile = path.join(tempDir, 'unblock-pro-hosts-discord.txt');
+  const psScriptPath = path.join(tempDir, 'unblock-pro-update-hosts.ps1');
+  return new Promise((resolve) => {
+    const req = https.get(HOSTS_URL, { timeout: 15000 }, (res) => {
+      if (res.statusCode !== 200) {
+        resolve({ success: false });
+        return;
+      }
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        try {
+          const body = Buffer.concat(chunks).toString('utf8');
+          fs.writeFileSync(tempFile, body, 'utf8');
+          const script = buildHostsUpdateScript(getHostsPath(), tempFile);
+          fs.writeFileSync(psScriptPath, script, 'utf8');
+          resolve({ success: true, psScriptPath });
+        } catch (e) {
+          resolve({ success: false });
+        }
+      });
+    });
+    req.on('error', () => resolve({ success: false }));
+    req.on('timeout', () => { req.destroy(); resolve({ success: false }); });
+  });
+}
+ipcMain.handle('update-hosts-for-discord', async () => {
+  if (process.platform !== 'win32') {
+    return { success: false, error: 'Только Windows' };
+  }
+  const tempDir = app.getPath('temp');
+  const tempFile = path.join(tempDir, 'unblock-pro-hosts-discord.txt');
+  const hostsPath = getHostsPath();
+  const psScriptPath = path.join(tempDir, 'unblock-pro-update-hosts.ps1');
+  return new Promise((resolve) => {
+    const req = https.get(HOSTS_URL, { timeout: 15000 }, (res) => {
+      if (res.statusCode !== 200) {
+        resolve({ success: false, error: `HTTP ${res.statusCode}` });
+        return;
+      }
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        try {
+          const body = Buffer.concat(chunks).toString('utf8');
+          fs.writeFileSync(tempFile, body, 'utf8');
+          const psScript = buildHostsUpdateScript(hostsPath, tempFile);
+          fs.writeFileSync(psScriptPath, psScript, 'utf8');
+          sendLog({ type: 'info', message: 'Запрос прав для записи в hosts...' });
+          sudo.exec(`powershell -ExecutionPolicy Bypass -NoProfile -File "${psScriptPath.replace(/\\/g, '\\\\')}"`, { name: 'UnblockPro update hosts' }, (err) => {
+            try { fs.unlinkSync(psScriptPath); } catch (e) {}
+            if (err && (err.message || '').toLowerCase().includes('cancel')) {
+              resolve({ success: false, error: 'Отклонено' });
+              return;
+            }
+            if (err) {
+              resolve({ success: false, error: err.message || 'Ошибка' });
+              return;
+            }
+            sendLog({ type: 'success', message: 'Hosts обновлён для Discord/Telegram' });
+            resolve({ success: true, hostsPath });
+          });
+        } catch (e) {
+          resolve({ success: false, error: e.message });
+        }
+      });
+    });
+    req.on('error', (e) => resolve({ success: false, error: e.message }));
+    req.on('timeout', () => { req.destroy(); resolve({ success: false, error: 'Timeout' }); });
+  });
+});
+
+ipcMain.handle('clear-discord-cache', () => {
+  const discordBase = path.join(process.env.APPDATA || '', 'discord');
+  const dirs = ['Cache', 'Code Cache', 'GPUCache'];
+  let cleared = 0;
+  for (const d of dirs) {
+    const full = path.join(discordBase, d);
+    try {
+      if (fs.existsSync(full)) {
+        fs.rmSync(full, { recursive: true });
+        cleared++;
+      }
+    } catch (e) {}
+  }
+  sendLog({ type: 'info', message: cleared ? `Очищен кэш Discord (${cleared} папок)` : 'Кэш Discord не найден или уже пуст' });
+  return { success: true, cleared };
 });
 
 ipcMain.handle('get-system-info', () => ({

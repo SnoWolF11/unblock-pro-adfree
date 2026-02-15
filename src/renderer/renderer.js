@@ -530,6 +530,20 @@ function handleUpdateDownloadProgress(progress) {
 }
 
 // Telegram link
+document.getElementById('updateHostsBtn')?.addEventListener('click', async () => {
+  const result = await window.api.updateHostsForDiscord();
+  if (result?.success) {
+    alert('Hosts обновлён. Перезапустите Discord при необходимости.');
+  } else {
+    alert('Ошибка: ' + (result?.error || 'неизвестная ошибка') + '\n\nРазрешите UAC, если запрос прав был отклонён.');
+  }
+});
+
+document.getElementById('clearDiscordCacheBtn')?.addEventListener('click', async () => {
+  await window.api.clearDiscordCache();
+  alert('Готово. Закройте Discord и запустите снова.');
+});
+
 document.getElementById('tgLink')?.addEventListener('click', (e) => {
   e.preventDefault();
   window.api.openExternal('https://t.me/bysonicx');
