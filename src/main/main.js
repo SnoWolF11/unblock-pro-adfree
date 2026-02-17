@@ -125,7 +125,9 @@ function getBinaryPath() {
 
 // ============= HOST LISTS & PATTERN FILES =============
 
-// Domain lists matching Flowseal/zapret-discord-youtube
+// Domain lists matching Flowseal/zapret-discord-youtube v1.9.6
+// IMPORTANT: list-general = Discord + Cloudflare ONLY (no YouTube!)
+// YouTube goes in list-google with separate filter rules
 const HOST_LIST_GENERAL = [
   'cloudflare-ech.com', 'encryptedsni.com', 'cloudflareaccess.com', 'cloudflareapps.com',
   'cloudflarebolt.com', 'cloudflareclient.com', 'cloudflareinsights.com', 'cloudflareok.com',
@@ -136,22 +138,18 @@ const HOST_LIST_GENERAL = [
   'discord.gifts', 'discord.gg', 'discord.media', 'discord.new', 'discord.store', 'discord.status',
   'discord-activities.com', 'discordactivities.com', 'discordapp.com', 'discordapp.net',
   'discordcdn.com', 'discordmerch.com', 'discordpartygames.com', 'discordsays.com',
-  'discordsez.com', 'discordstatus.com', 'updates.discord.com',
-  'gateway.discord.gg', 'cdn.discordapp.com', 'dl.discordapp.net',
-  'media.discordapp.net', 'images-ext-1.discordapp.net', 'images-ext-2.discordapp.net',
+  'discordsez.com', 'discordstatus.com',
   'frankerfacez.com', 'ffzap.com', 'betterttv.net',
-  '7tv.app', '7tv.io', 'localizeapi.com',
-  // YouTube / Google
-  'youtube.com', 'youtu.be', 'yt.be', 'ytimg.com', 'googlevideo.com', 'youtube-nocookie.com',
-  'youtubei.googleapis.com', 'yt3.ggpht.com', 'yt3.googleusercontent.com',
-  'youtube-ui.l.google.com', 'youtubeembeddedplayer.googleapis.com'
+  '7tv.app', '7tv.io', 'localizeapi.com'
 ].join('\n');
 
 const HOST_LIST_GOOGLE = [
-  'youtube.com', 'youtu.be', 'yt.be', 'ytimg.com', 'googlevideo.com', 'youtube-nocookie.com',
-  'youtubei.googleapis.com', 'yt3.ggpht.com', 'yt3.googleusercontent.com',
-  'youtube-ui.l.google.com', 'youtubeembeddedplayer.googleapis.com',
-  'googleapis.com', 'gstatic.com', 'ggpht.com', 'googleusercontent.com'
+  'yt3.ggpht.com', 'yt4.ggpht.com', 'yt3.googleusercontent.com',
+  'googlevideo.com', 'jnn-pa.googleapis.com', 'stable.dl2.discordapp.net',
+  'wide-youtube.l.google.com', 'youtube-nocookie.com', 'youtube-ui.l.google.com',
+  'youtube.com', 'youtubeembeddedplayer.googleapis.com', 'youtubekids.com',
+  'youtubei.googleapis.com', 'youtu.be', 'yt-video-upload.l.google.com',
+  'ytimg.com', 'ytimg.l.google.com'
 ].join('\n');
 
 // Discord-only list: apply gentler desync to Discord TLS first, syndata for the rest
@@ -166,6 +164,26 @@ const HOST_LIST_DISCORD = [
   'router.discordapp.net'
 ].join('\n');
 
+// Exclude list — Russian/local services that should NOT be processed by DPI bypass
+const HOST_LIST_EXCLUDE = [
+  'pusher.com', 'live-video.net', 'ttvnw.net', 'twitch.tv',
+  'mail.ru', 'citilink.ru', 'yandex.com', 'nvidia.com', 'donationalerts.com',
+  'vk.com', 'yandex.kz', 'mts.ru', 'multimc.org', 'ya.ru', 'dns-shop.ru',
+  'habr.com', '3dnews.ru', 'sberbank.ru', 'ozon.ru', 'wildberries.ru',
+  'microsoft.com', 'msi.com', 'akamaitechnologies.com', '2ip.ru', 'yandex.ru',
+  'boosty.to', 'tanki.su', 'lesta.ru', 'korabli.su', 'tanksblitz.ru', 'reg.ru'
+].join('\n');
+
+// Private/reserved IP ranges to exclude from processing
+const IPSET_EXCLUDE = [
+  '0.0.0.0/8', '10.0.0.0/8', '127.0.0.0/8', '172.16.0.0/12',
+  '192.168.0.0/16', '169.254.0.0/16', '224.0.0.0/4', '100.64.0.0/10',
+  '::1', 'fc00::/7', 'fe80::/10'
+].join('\n');
+
+// IPSet for IP-based fallback rules (dummy IP = "none" mode, like reference default)
+const IPSET_ALL = '203.0.113.113/32';
+
 function ensureHostLists() {
   hostListsDir = path.join(app.getPath('userData'), 'lists');
   fs.mkdirSync(hostListsDir, { recursive: true });
@@ -174,6 +192,9 @@ function ensureHostLists() {
   fs.writeFileSync(path.join(hostListsDir, 'list-general.txt'), HOST_LIST_GENERAL, 'utf8');
   fs.writeFileSync(path.join(hostListsDir, 'list-google.txt'), HOST_LIST_GOOGLE, 'utf8');
   fs.writeFileSync(path.join(hostListsDir, 'list-discord.txt'), HOST_LIST_DISCORD, 'utf8');
+  fs.writeFileSync(path.join(hostListsDir, 'list-exclude.txt'), HOST_LIST_EXCLUDE, 'utf8');
+  fs.writeFileSync(path.join(hostListsDir, 'ipset-exclude.txt'), IPSET_EXCLUDE, 'utf8');
+  fs.writeFileSync(path.join(hostListsDir, 'ipset-all.txt'), IPSET_ALL, 'utf8');
 
   return hostListsDir;
 }
@@ -301,336 +322,423 @@ function ensureBinPatternFiles(platformDir) {
 // Build strategy args with resolved bin/list paths
 // NOTE: paths are NOT quoted here — spawn() handles quoting automatically.
 // The batch-file elevated path also handles quoting via its own logic.
+//
+// Architecture: every strategy follows Flowseal's 8-rule structure:
+//   Rule 1: UDP 443 + hostlist-general + exclude (QUIC)
+//   Rule 2: UDP 19294-19344,50000-50100 + L7=discord,stun (voice)
+//   Rule 3: TCP 2053,2083,2087,2096,8443 + hostlist-domains=discord.media (media)
+//   Rule 4: TCP 443 + hostlist-google + ip-id=zero (YouTube)
+//   Rule 5: TCP 80,443 + hostlist-general + exclude (Discord web/API)
+//   Rule 6: UDP 443 + ipset-all + exclude (QUIC IP fallback)
+//   Rule 7: TCP 80,443 + ipset-all + exclude (TCP IP fallback)
+//   Rule 8: UDP game + ipset-all + any-protocol=1 (catch-all)
 function buildWin32Strategies(binDir, listsDir) {
   const q = (f) => path.join(binDir, f);  // bin file path
   const l = (f) => path.join(listsDir, f); // list file path
-  
-  // Common prefix for all strategies: port filters
+
   const WF_FULL = ['--wf-tcp=80,443,2053,2083,2087,2096,8443', '--wf-udp=443,19294-19344,50000-50100'];
-  const WF_TCP443 = ['--wf-tcp=443', '--wf-udp=443,19294-19344,50000-50100'];
-  
-  // Common UDP rules — QUIC first (hostlist), then Discord voice high ports.
-  // Order matches zapret: UDP 443 hostlist (QUIC), then 19294-19344,50000-50100 (discord,stun).
-  function udpRules(quicRepeats = 6) {
+
+  // Rule 1: UDP 443 QUIC — hostlist-general with exclude
+  function rule1_udpQuic(quicRepeats = 6) {
     return [
-      '--filter-udp=443', `--hostlist=${l('list-general.txt')}`, '--dpi-desync=fake',
-      `--dpi-desync-repeats=${quicRepeats}`, `--dpi-desync-fake-quic=${q('quic_initial_www_google_com.bin')}`, '--new',
+      '--filter-udp=443', `--hostlist=${l('list-general.txt')}`,
+      `--hostlist-exclude=${l('list-exclude.txt')}`, `--ipset-exclude=${l('ipset-exclude.txt')}`,
+      '--dpi-desync=fake', `--dpi-desync-repeats=${quicRepeats}`,
+      `--dpi-desync-fake-quic=${q('quic_initial_www_google_com.bin')}`, '--new'
+    ];
+  }
+
+  // Rule 2: UDP Discord voice + STUN
+  function rule2_udpDiscordVoice() {
+    return [
       '--filter-udp=19294-19344,50000-50100', '--filter-l7=discord,stun',
       '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new'
     ];
   }
-  // Same as udpRules but also catch Discord/STUN on UDP 443 (in case hostlist misses)
-  function udpRulesWithDiscord443(quicRepeats = 6) {
+
+  // Rule 3: TCP Discord media ports with hostlist-domains=discord.media
+  function rule3_discordMedia(method, extraArgs = []) {
     return [
-      '--filter-udp=443', '--filter-l7=discord,stun', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--new',
-      ...udpRules(quicRepeats)
-    ];
-  }
-  
-  // Discord media TCP rule (ports 2053,2083,2087,2096,8443)
-  // No hostlist — these ports are almost exclusively used by Discord voice/media
-  function discordMediaRule(method, extraArgs = []) {
-    return [
-      '--filter-tcp=2053,2083,2087,2096,8443',
+      '--filter-tcp=2053,2083,2087,2096,8443', '--hostlist-domains=discord.media',
       `--dpi-desync=${method}`, ...extraArgs, '--new'
     ];
   }
-  
-  // Discord-only TCP 443 rule — apply first so Discord gets gentle desync, syndata for the rest
+
+  // Rule 4: TCP 443 Google/YouTube with ip-id=zero
+  function rule4_google(method, extraArgs = []) {
+    return [
+      '--filter-tcp=443', `--hostlist=${l('list-google.txt')}`, '--ip-id=zero',
+      `--dpi-desync=${method}`, ...extraArgs, '--new'
+    ];
+  }
+
+  // Rule 5: TCP 80,443 general hostlist with exclude
+  function rule5_generalTcp(method, extraArgs = []) {
+    return [
+      '--filter-tcp=80,443', `--hostlist=${l('list-general.txt')}`,
+      `--hostlist-exclude=${l('list-exclude.txt')}`, `--ipset-exclude=${l('ipset-exclude.txt')}`,
+      `--dpi-desync=${method}`, ...extraArgs, '--new'
+    ];
+  }
+
+  // Rule 6: UDP 443 IP-based fallback (QUIC for IPs not in hostlist)
+  function rule6_ipsetUdpFallback(quicRepeats = 6) {
+    return [
+      '--filter-udp=443', `--ipset=${l('ipset-all.txt')}`,
+      `--hostlist-exclude=${l('list-exclude.txt')}`, `--ipset-exclude=${l('ipset-exclude.txt')}`,
+      '--dpi-desync=fake', `--dpi-desync-repeats=${quicRepeats}`,
+      `--dpi-desync-fake-quic=${q('quic_initial_www_google_com.bin')}`, '--new'
+    ];
+  }
+
+  // Rule 7: TCP IP-based fallback
+  function rule7_ipsetTcpFallback(method, extraArgs = []) {
+    return [
+      '--filter-tcp=80,443', `--ipset=${l('ipset-all.txt')}`,
+      `--hostlist-exclude=${l('list-exclude.txt')}`, `--ipset-exclude=${l('ipset-exclude.txt')}`,
+      `--dpi-desync=${method}`, ...extraArgs, '--new'
+    ];
+  }
+
+  // Rule 8: UDP game catch-all with any-protocol
+  function rule8_gameUdp(repeats = 12, cutoff = 'n2') {
+    return [
+      '--filter-udp=12', `--ipset=${l('ipset-all.txt')}`, `--ipset-exclude=${l('ipset-exclude.txt')}`,
+      '--dpi-desync=fake', `--dpi-desync-repeats=${repeats}`, '--dpi-desync-any-protocol=1',
+      `--dpi-desync-fake-unknown-udp=${q('quic_initial_www_google_com.bin')}`,
+      `--dpi-desync-cutoff=${cutoff}`
+    ];
+  }
+
+  // Discord-only TCP 443 rule — for combo strategies that split Discord/YouTube methods
   function discordTcp443Rule(method, extraArgs = []) {
     return [
       '--filter-tcp=443', `--hostlist=${l('list-discord.txt')}`,
       `--dpi-desync=${method}`, ...extraArgs, '--new'
     ];
   }
-  
-  // Google-specific TCP 443 rule
-  function googleRule(method, extraArgs = []) {
+
+  // Helper: build a standard 8-rule strategy (Rules 3-5 + 7 share the same method)
+  function std8(method, r3extra, r4extra, r5extra, r7extra, opts = {}) {
+    const quicR = opts.quicRepeats || 6;
+    const gameR = opts.gameRepeats || 12;
+    const cutoff = opts.cutoff || 'n2';
     return [
-      '--filter-tcp=443', `--hostlist=${l('list-google.txt')}`, '--ip-id=zero',
-      `--dpi-desync=${method}`, ...extraArgs, '--new'
-    ];
-  }
-  
-  // General TCP rule — catch-all for ALL remaining traffic (no hostlist filter)
-  // This ensures .ru and any other blocked sites get DPI bypass too
-  function generalTcpRule(method, extraArgs = []) {
-    return [
-      '--filter-tcp=80,443',
-      `--dpi-desync=${method}`, ...extraArgs
+      ...WF_FULL,
+      ...rule1_udpQuic(quicR),
+      ...rule2_udpDiscordVoice(),
+      ...rule3_discordMedia(method, r3extra),
+      ...rule4_google(method, r4extra),
+      ...rule5_generalTcp(method, r5extra),
+      ...rule6_ipsetUdpFallback(quicR),
+      ...rule7_ipsetTcpFallback(method, r7extra),
+      ...rule8_gameUdp(gameR, cutoff)
     ];
   }
 
-  // ALT2 from Flowseal/zapret-discord-youtube — multisplit 652 pos=2 with pattern (often works for Discord)
-  const alt2Pattern = q('tls_clienthello_www_google_com.bin');
-  const ALT2_ARGS = [
-    ...WF_FULL,
-    ...udpRules(6),
-    ...discordMediaRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2', `--dpi-desync-split-seqovl-pattern=${alt2Pattern}`]),
-    ...googleRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2', `--dpi-desync-split-seqovl-pattern=${alt2Pattern}`]),
-    ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2', `--dpi-desync-split-seqovl-pattern=${alt2Pattern}`])
-  ];
+  const tlsG = q('tls_clienthello_www_google_com.bin');
+  const tls4 = q('tls_clienthello_4pda_to.bin');
+  const tlsM = q('tls_clienthello_max_ru.bin');
 
   return [
-    // ==================== SINGLE-METHOD FIRST ====================
+    // ========== Flowseal reference strategies (8-rule architecture) ==========
 
-    // === ALT2 (zapret) — multisplit 652 pos=2 + pattern, часто работает для Discord ===
-    { name: 'ALT2', args: ALT2_ARGS },
-    // === COMBO: Discord = ALT9 (hostfakesplit), YouTube = multisplit 652 pos=2 — один запуск для обоих ===
-    { name: 'combo:ALT9+multisplit', args: [
+    // general.bat (Flowseal default) — multisplit 681/568 with pattern
+    { name: 'general', args: std8('multisplit',
+      ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1', `--dpi-desync-split-seqovl-pattern=${tlsG}`],
+      ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1', `--dpi-desync-split-seqovl-pattern=${tlsG}`],
+      ['--dpi-desync-split-seqovl=568', '--dpi-desync-split-pos=1', `--dpi-desync-split-seqovl-pattern=${tls4}`],
+      ['--dpi-desync-split-seqovl=568', '--dpi-desync-split-pos=1', `--dpi-desync-split-seqovl-pattern=${tls4}`],
+      { cutoff: 'n2' })
+    },
+
+    // ALT — fake,fakedsplit ts + TLS pattern
+    { name: 'ALT', args: std8('fake,fakedsplit',
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts', '--dpi-desync-fakedsplit-pattern=0x00', `--dpi-desync-fake-tls=${tlsG}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts', '--dpi-desync-fakedsplit-pattern=0x00', `--dpi-desync-fake-tls=${tlsG}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts', '--dpi-desync-fakedsplit-pattern=0x00', `--dpi-desync-fake-tls=${tlsG}`, `--dpi-desync-fake-http=${tlsM}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts', '--dpi-desync-fakedsplit-pattern=0x00', `--dpi-desync-fake-tls=${tlsG}`, `--dpi-desync-fake-http=${tlsM}`],
+      { cutoff: 'n3' })
+    },
+
+    // ALT2 — multisplit 652 pos=2 + pattern
+    { name: 'ALT2', args: std8('multisplit',
+      ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2', `--dpi-desync-split-seqovl-pattern=${tlsG}`],
+      ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2', `--dpi-desync-split-seqovl-pattern=${tlsG}`],
+      ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2', `--dpi-desync-split-seqovl-pattern=${tlsG}`],
+      ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2', `--dpi-desync-split-seqovl-pattern=${tlsG}`],
+      { cutoff: 'n2' })
+    },
+
+    // ALT3 — fake,hostfakesplit with TLS mod rnd,dupsid,sni
+    { name: 'ALT3', args: [
       ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('hostfakesplit', ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts',
-        '--dpi-desync-hostfakesplit-mod=host=www.google.com']),
-      ...discordTcp443Rule('hostfakesplit', ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts',
-        '--dpi-desync-hostfakesplit-mod=host=www.google.com']),
-      ...googleRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2']),
-      ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2'])
-    ]},
-    // === #1 fake badseq — one method for all, best compatibility ===
-    { name: 'fake-badseq', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('fake', ['--dpi-desync-fake-tls-mod=none', '--dpi-desync-repeats=6',
-        '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2']),
-      ...googleRule('fake', ['--dpi-desync-fake-tls-mod=none', '--dpi-desync-repeats=6',
-        '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2']),
-      ...generalTcpRule('fake', ['--dpi-desync-fake-tls-mod=none', '--dpi-desync-repeats=6',
-        '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2'])
-    ]},
-    // === #2 multisplit 681 ===
-    { name: 'multisplit-681', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1']),
-      ...googleRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1']),
-      ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1'])
-    ]},
-    // === #3 fake+split2 autottl ===
-    { name: 'fake+split2-autottl', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('fake,split2', ['--dpi-desync-autottl=5', '--dpi-desync-repeats=6',
-        '--dpi-desync-fooling=md5sig']),
-      ...googleRule('fake,split2', ['--dpi-desync-autottl=5', '--dpi-desync-repeats=6',
-        '--dpi-desync-fooling=md5sig']),
-      ...generalTcpRule('fake,split2', ['--dpi-desync-autottl=5', '--dpi-desync-repeats=6',
-        '--dpi-desync-fooling=md5sig'])
-    ]},
-    // === #4 syndata-only (all 443) — often breaks Discord WebSocket, try after others ===
-    { name: 'syndata-only', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
-      '--filter-tcp=80',
-      '--dpi-desync=fake', '--dpi-desync-repeats=6'
+      ...rule1_udpQuic(6),
+      ...rule2_udpDiscordVoice(),
+      ...rule3_discordMedia('fake,hostfakesplit', [
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com',
+        '--dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1', '--dpi-desync-fooling=ts']),
+      ...rule4_google('fake,hostfakesplit', [
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com',
+        '--dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1', '--dpi-desync-fooling=ts']),
+      ...rule5_generalTcp('fake,hostfakesplit', [
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru',
+        '--dpi-desync-hostfakesplit-mod=host=ya.ru,altorder=1', '--dpi-desync-fooling=ts', `--dpi-desync-fake-http=${tlsM}`]),
+      ...rule6_ipsetUdpFallback(6),
+      ...rule7_ipsetTcpFallback('fake,hostfakesplit', [
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru',
+        '--dpi-desync-hostfakesplit-mod=host=ya.ru,altorder=1', '--dpi-desync-fooling=ts', `--dpi-desync-fake-http=${tlsM}`]),
+      ...rule8_gameUdp(10, 'n4')
     ]},
 
-    // ==================== COMBO STRATEGIES ====================
+    // ALT4 — fake,multisplit badseq increment=1000 + TLS pattern
+    { name: 'ALT4', args: std8('fake,multisplit',
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=1000', `--dpi-desync-fake-tls=${tlsG}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=1000', `--dpi-desync-fake-tls=${tlsG}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=1000', `--dpi-desync-fake-tls=${tlsG}`, `--dpi-desync-fake-http=${tlsM}`, `--dpi-desync-fake-http=${tlsM}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=1000', `--dpi-desync-fake-tls=${tlsG}`, `--dpi-desync-fake-http=${tlsM}`, `--dpi-desync-fake-http=${tlsM}`],
+      { cutoff: 'n2' })
+    },
 
-    // === COMBO: Discord minimal (no fooling) + syndata YouTube ===
-    { name: 'combo:discord-minimal', args: [
+    // ALT5 — syndata,multidisorder (NOT RECOMMENDED but works for some)
+    { name: 'ALT5', args: [
       ...WF_FULL,
-      ...udpRules(6),
-      '--filter-tcp=2053,2083,2087,2096,8443',
-      '--dpi-desync=fake', '--dpi-desync-repeats=4', '--dpi-desync-fake-tls-mod=none', '--new',
-      ...discordTcp443Rule('fake', ['--dpi-desync-repeats=4', '--dpi-desync-fake-tls-mod=none']),
-      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
-      '--filter-tcp=80',
-      '--dpi-desync=fake', '--dpi-desync-repeats=4', '--dpi-desync-fake-tls-mod=none'
+      ...rule1_udpQuic(6),
+      ...rule2_udpDiscordVoice(),
+      '--filter-l3=ipv4', '--filter-tcp=443,2053,2083,2087,2096,8443',
+      `--hostlist-exclude=${l('list-exclude.txt')}`, `--ipset-exclude=${l('ipset-exclude.txt')}`,
+      '--dpi-desync=syndata,multidisorder', '--new',
+      ...rule6_ipsetUdpFallback(6),
+      ...rule8_gameUdp(14, 'n3')
     ]},
-    // === COMBO: Discord badseq + syndata YouTube ===
+
+    // ALT6 — multisplit 681 pos=1 + pattern (same as general but 681 everywhere)
+    { name: 'ALT6', args: std8('multisplit',
+      ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1', `--dpi-desync-split-seqovl-pattern=${tlsG}`],
+      ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1', `--dpi-desync-split-seqovl-pattern=${tlsG}`],
+      ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1', `--dpi-desync-split-seqovl-pattern=${tlsG}`],
+      ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1', `--dpi-desync-split-seqovl-pattern=${tlsG}`],
+      { cutoff: 'n2' })
+    },
+
+    // ALT7 — fake badseq increment=2 (simple, wide compat)
+    { name: 'ALT7', args: std8('fake',
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2', `--dpi-desync-fake-tls=${tlsG}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2', `--dpi-desync-fake-tls=${tlsG}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2', `--dpi-desync-fake-tls=${tlsG}`, `--dpi-desync-fake-http=${tlsM}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2', `--dpi-desync-fake-tls=${tlsG}`, `--dpi-desync-fake-http=${tlsM}`],
+      { cutoff: 'n2' })
+    },
+
+    // ALT8 — fake badseq increment=10000000
+    { name: 'ALT8', args: std8('fake',
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=10000000', `--dpi-desync-fake-tls=${tlsG}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=10000000', `--dpi-desync-fake-tls=${tlsG}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=10000000', `--dpi-desync-fake-tls=${tlsG}`, `--dpi-desync-fake-http=${tlsM}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=10000000', `--dpi-desync-fake-tls=${tlsG}`, `--dpi-desync-fake-http=${tlsM}`],
+      { cutoff: 'n2' })
+    },
+
+    // ALT9 — hostfakesplit ts
+    { name: 'ALT9', args: std8('hostfakesplit',
+      ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts', '--dpi-desync-hostfakesplit-mod=host=www.google.com'],
+      ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts', '--dpi-desync-hostfakesplit-mod=host=www.google.com'],
+      ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts,md5sig', '--dpi-desync-hostfakesplit-mod=host=ozon.ru'],
+      ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts', '--dpi-desync-hostfakesplit-mod=host=ozon.ru'],
+      { cutoff: 'n2' })
+    },
+
+    // ALT10 — multisplit 652 pos=2 (no pattern, unlike ALT2)
+    { name: 'ALT10', args: std8('multisplit',
+      ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2'],
+      ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2'],
+      ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2'],
+      ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2'],
+      { cutoff: 'n2' })
+    },
+
+    // ALT11 — fake,multisplit 681 ts repeats=8 + TLS pattern
+    { name: 'ALT11', args: [
+      ...WF_FULL,
+      ...rule1_udpQuic(11),
+      ...rule2_udpDiscordVoice(),
+      ...rule3_discordMedia('fake,multisplit', [
+        '--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1',
+        '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8',
+        `--dpi-desync-split-seqovl-pattern=${tlsG}`, `--dpi-desync-fake-tls=${tlsG}`]),
+      ...rule4_google('fake,multisplit', [
+        '--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1',
+        '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8',
+        `--dpi-desync-split-seqovl-pattern=${tlsG}`, `--dpi-desync-fake-tls=${tlsG}`]),
+      ...rule5_generalTcp('fake,multisplit', [
+        '--dpi-desync-split-seqovl=664', '--dpi-desync-split-pos=1',
+        '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8',
+        `--dpi-desync-split-seqovl-pattern=${tlsM}`, `--dpi-desync-fake-tls=${tlsM}`, `--dpi-desync-fake-http=${tlsM}`]),
+      ...rule6_ipsetUdpFallback(11),
+      ...rule7_ipsetTcpFallback('fake,multisplit', [
+        '--dpi-desync-split-seqovl=664', '--dpi-desync-split-pos=1',
+        '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8',
+        `--dpi-desync-split-seqovl-pattern=${tlsM}`, `--dpi-desync-fake-tls=${tlsM}`, `--dpi-desync-fake-http=${tlsM}`]),
+      ...rule8_gameUdp(10, 'n4')
+    ]},
+
+    // SIMPLE FAKE — fake ts + TLS pattern (simple, for lenient ISPs)
+    { name: 'SIMPLE FAKE', args: std8('fake',
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts', `--dpi-desync-fake-tls=${tlsG}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts', `--dpi-desync-fake-tls=${tlsG}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts', `--dpi-desync-fake-tls=${tlsG}`, `--dpi-desync-fake-http=${tlsM}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts', `--dpi-desync-fake-tls=${tlsG}`, `--dpi-desync-fake-http=${tlsM}`],
+      { cutoff: 'n3' })
+    },
+
+    // SIMPLE FAKE ALT — fake,fakedsplit ts
+    { name: 'SIMPLE FAKE ALT', args: std8('fake,fakedsplit',
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts', '--dpi-desync-fakedsplit-pattern=0x00', `--dpi-desync-fake-tls=${tlsG}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts', '--dpi-desync-fakedsplit-pattern=0x00', `--dpi-desync-fake-tls=${tlsG}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts', '--dpi-desync-fakedsplit-pattern=0x00', `--dpi-desync-fake-tls=${tlsG}`, `--dpi-desync-fake-http=${tlsM}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts', '--dpi-desync-fakedsplit-pattern=0x00', `--dpi-desync-fake-tls=${tlsG}`, `--dpi-desync-fake-http=${tlsM}`],
+      { cutoff: 'n3' })
+    },
+
+    // SIMPLE FAKE ALT2 — fake badseq increment=2
+    { name: 'SIMPLE FAKE ALT2', args: std8('fake',
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2', `--dpi-desync-fake-tls=${tlsG}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2', `--dpi-desync-fake-tls=${tlsG}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2', `--dpi-desync-fake-tls=${tlsG}`, `--dpi-desync-fake-http=${tlsM}`],
+      ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2', `--dpi-desync-fake-tls=${tlsG}`, `--dpi-desync-fake-http=${tlsM}`],
+      { cutoff: 'n3' })
+    },
+
+    // FAKE TLS AUTO — fake,multidisorder with TLS mod rnd,dupsid,sni=www.google.com
+    { name: 'FAKE TLS AUTO', args: [
+      ...WF_FULL,
+      ...rule1_udpQuic(11),
+      ...rule2_udpDiscordVoice(),
+      ...rule3_discordMedia('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com']),
+      ...rule4_google('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com']),
+      ...rule5_generalTcp('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com', `--dpi-desync-fake-http=${tlsM}`]),
+      ...rule6_ipsetUdpFallback(11),
+      ...rule7_ipsetTcpFallback('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com', `--dpi-desync-fake-http=${tlsM}`]),
+      ...rule8_gameUdp(10, 'n2')
+    ]},
+
+    // FAKE TLS AUTO ALT — same structure, slightly different params
+    { name: 'FAKE TLS AUTO ALT', args: [
+      ...WF_FULL,
+      ...rule1_udpQuic(11),
+      ...rule2_udpDiscordVoice(),
+      ...rule3_discordMedia('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com']),
+      ...rule4_google('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com']),
+      ...rule5_generalTcp('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com', `--dpi-desync-fake-http=${tlsM}`]),
+      ...rule6_ipsetUdpFallback(11),
+      ...rule7_ipsetTcpFallback('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com', `--dpi-desync-fake-http=${tlsM}`]),
+      ...rule8_gameUdp(11, 'n2')
+    ]},
+
+    // FAKE TLS AUTO ALT2 — with fake-tls-mod=rnd,dupsid,sni + badseq increment=2
+    { name: 'FAKE TLS AUTO ALT2', args: [
+      ...WF_FULL,
+      ...rule1_udpQuic(11),
+      ...rule2_udpDiscordVoice(),
+      ...rule3_discordMedia('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-badseq-increment=2',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com']),
+      ...rule4_google('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-badseq-increment=2',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com']),
+      ...rule5_generalTcp('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-badseq-increment=2',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com', `--dpi-desync-fake-http=${tlsM}`]),
+      ...rule6_ipsetUdpFallback(11),
+      ...rule7_ipsetTcpFallback('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-badseq-increment=2',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com', `--dpi-desync-fake-http=${tlsM}`]),
+      ...rule8_gameUdp(11, 'n2')
+    ]},
+
+    // FAKE TLS AUTO ALT3 — with ts,badseq fooling variant
+    { name: 'FAKE TLS AUTO ALT3', args: [
+      ...WF_FULL,
+      ...rule1_udpQuic(11),
+      ...rule2_udpDiscordVoice(),
+      ...rule3_discordMedia('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=ts,badseq',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com']),
+      ...rule4_google('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=ts,badseq',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com']),
+      ...rule5_generalTcp('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=ts,badseq',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com', `--dpi-desync-fake-http=${tlsM}`]),
+      ...rule6_ipsetUdpFallback(11),
+      ...rule7_ipsetTcpFallback('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=ts,badseq',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com', `--dpi-desync-fake-http=${tlsM}`]),
+      ...rule8_gameUdp(11, 'n2')
+    ]},
+
+    // ========== Combo strategies (Discord-first + syndata for YouTube) ==========
+
+    // COMBO: Discord badseq + syndata YouTube
     { name: 'combo:syndata+badseq', args: [
       ...WF_FULL,
-      ...udpRules(6),
-      // Discord media TCP ports — fake with badseq
-      '--filter-tcp=2053,2083,2087,2096,8443',
-      '--dpi-desync=fake', '--dpi-desync-repeats=6',
-      '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2', '--new',
-      // Discord TCP 443 FIRST (hostlist) — gentle desync so Discord app works
+      ...rule1_udpQuic(6),
+      ...rule2_udpDiscordVoice(),
+      ...rule3_discordMedia('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2']),
       ...discordTcp443Rule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--dpi-desync-badseq-increment=2']),
-      // All other TCP 443 — syndata+multidisorder (YouTube + everything else)
       '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
-      // TCP 80 HTTP fallback
-      '--filter-tcp=80',
-      '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq'
-    ]},
-    // === COMBO #2: Discord-first (multisplit for Discord 443) + syndata (YouTube/rest) ===
-    { name: 'combo:syndata+multisplit', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      // Discord media TCP ports — multisplit
-      '--filter-tcp=2053,2083,2087,2096,8443',
-      '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1', '--new',
-      // Discord TCP 443 first
-      ...discordTcp443Rule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1']),
-      // All other TCP 443 — syndata
-      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
-      // TCP 80
-      '--filter-tcp=80',
-      '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1'
-    ]},
-    // === COMBO #3: Discord-first (fake md5sig for Discord 443) + syndata (YouTube/rest) ===
-    { name: 'combo:syndata+md5sig', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      // Discord media TCP ports — fake md5sig+ts
-      '--filter-tcp=2053,2083,2087,2096,8443',
-      '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
-      `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`, '--new',
-      // Discord TCP 443 first
-      ...discordTcp443Rule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
-        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
-      // All other TCP 443 — syndata
-      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
-      // TCP 80
-      '--filter-tcp=80',
-      '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig'
-    ]},
-    // === COMBO #4: Discord-first (split2 for Discord 443) + syndata (YouTube/rest) ===
-    { name: 'combo:syndata+split2', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      // Discord media TCP ports — fake+split2 autottl
-      '--filter-tcp=2053,2083,2087,2096,8443',
-      '--dpi-desync=fake,split2', '--dpi-desync-autottl=5', '--dpi-desync-repeats=6',
-      '--dpi-desync-fooling=md5sig', '--new',
-      // Discord TCP 443 first
-      ...discordTcp443Rule('fake,split2', ['--dpi-desync-autottl=5', '--dpi-desync-repeats=6', '--dpi-desync-fooling=md5sig']),
-      // All other TCP 443 — syndata
-      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
-      // TCP 80
-      '--filter-tcp=80',
-      '--dpi-desync=fake,split2', '--dpi-desync-autottl=5', '--dpi-desync-repeats=6'
+      '--filter-tcp=80', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--new',
+      ...rule6_ipsetUdpFallback(6),
+      ...rule8_gameUdp(12, 'n2')
     ]},
 
-    // === fake md5sig+ts with TLS pattern files ===
-    { name: 'fake-md5sig-tls', args: [
+    // COMBO: Discord multisplit + syndata YouTube
+    { name: 'combo:syndata+multisplit', args: [
       ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
-        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
-      ...googleRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
-        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
-      ...generalTcpRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig',
-        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`,
-        `--dpi-desync-fake-http=${q('tls_clienthello_max_ru.bin')}`])
-    ]},
-    // === multisplit pos=2,sniext+1 seqovl=679 ===
-    { name: 'multisplit-679', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('multisplit', ['--dpi-desync-split-pos=2,sniext+1', '--dpi-desync-split-seqovl=679']),
-      ...googleRule('multisplit', ['--dpi-desync-split-pos=2,sniext+1', '--dpi-desync-split-seqovl=679']),
-      ...generalTcpRule('multisplit', ['--dpi-desync-split-pos=2,sniext+1', '--dpi-desync-split-seqovl=679'])
-    ]},
-    // === #7 fake+multisplit seqovl=664 ts repeats=8 ===
-    { name: 'fake+multisplit-664', args: [
-      ...WF_FULL,
-      ...udpRules(11),
-      ...discordMediaRule('fake,multisplit', ['--dpi-desync-split-seqovl=664', '--dpi-desync-split-pos=1',
-        '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8']),
-      ...googleRule('fake,multisplit', ['--dpi-desync-split-seqovl=664', '--dpi-desync-split-pos=1',
-        '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8']),
-      ...generalTcpRule('fake,multisplit', ['--dpi-desync-split-seqovl=664', '--dpi-desync-split-pos=1',
-        '--dpi-desync-fooling=ts', '--dpi-desync-repeats=8'])
-    ]},
-    // === #8 fake+multidisorder badseq+md5sig ===
-    { name: 'fake+multidisorder', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
-        '--dpi-desync-fooling=badseq,md5sig']),
-      ...googleRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
-        '--dpi-desync-fooling=badseq,md5sig']),
-      ...generalTcpRule('fake,multidisorder', ['--dpi-desync-split-pos=1,midsld',
-        '--dpi-desync-fooling=badseq,md5sig'])
-    ]},
-    // === #9 multisplit seqovl=652 pos=2 ===
-    { name: 'multisplit-652', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2']),
-      ...googleRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2']),
-      ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=652', '--dpi-desync-split-pos=2'])
-    ]},
-    // === #10 fake+multisplit badseq increment=1000 ===
-    { name: 'fake+multisplit-badseq', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('fake,multisplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
-        '--dpi-desync-badseq-increment=1000']),
-      ...googleRule('fake,multisplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
-        '--dpi-desync-badseq-increment=1000']),
-      ...generalTcpRule('fake,multisplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
-        '--dpi-desync-badseq-increment=1000'])
-    ]},
-    // === #11 fake ts with TLS pattern files (simpler) ===
-    { name: 'fake-ts-tls', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
-      ...googleRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`]),
-      ...generalTcpRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        `--dpi-desync-fake-tls=${q('tls_clienthello_www_google_com.bin')}`,
-        `--dpi-desync-fake-http=${q('tls_clienthello_max_ru.bin')}`])
-    ]},
-    // === #12 general — multisplit seqovl=568 (Flowseal default) ===
-    { name: 'general', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1',
-        `--dpi-desync-split-seqovl-pattern=${q('tls_clienthello_www_google_com.bin')}`]),
-      ...googleRule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1',
-        `--dpi-desync-split-seqovl-pattern=${q('tls_clienthello_www_google_com.bin')}`]),
-      ...generalTcpRule('multisplit', ['--dpi-desync-split-seqovl=568', '--dpi-desync-split-pos=1',
-        `--dpi-desync-split-seqovl-pattern=${q('tls_clienthello_4pda_to.bin')}`])
-    ]},
-    // === #13 fake+fakedsplit ts ===
-    { name: 'fake+fakedsplit', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        '--dpi-desync-fakedsplit-pattern=0x00']),
-      ...googleRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        '--dpi-desync-fakedsplit-pattern=0x00']),
-      ...generalTcpRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        '--dpi-desync-fakedsplit-pattern=0x00'])
-    ]},
-    // === #14 hostfakesplit ts (ALT9-style, works on some ISPs) ===
-    { name: 'hostfakesplit', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('hostfakesplit', ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts',
-        '--dpi-desync-hostfakesplit-mod=host=www.google.com']),
-      ...googleRule('hostfakesplit', ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts',
-        '--dpi-desync-hostfakesplit-mod=host=www.google.com']),
-      ...generalTcpRule('hostfakesplit', ['--dpi-desync-repeats=4', '--dpi-desync-fooling=ts,md5sig',
-        '--dpi-desync-hostfakesplit-mod=host=ozon.ru'])
-    ]},
-    // === #15 fakedsplit badseq ===
-    { name: 'fakedsplit-badseq', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
-        '--dpi-desync-fakedsplit-pattern=0x00']),
-      ...googleRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
-        '--dpi-desync-fakedsplit-pattern=0x00']),
-      ...generalTcpRule('fake,fakedsplit', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq',
-        '--dpi-desync-fakedsplit-pattern=0x00'])
-    ]},
-    // === #16 fake ts only (simplest, for lenient ISPs) ===
-    { name: 'fake-ts', args: [
-      ...WF_FULL,
-      ...udpRules(6),
-      ...discordMediaRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        '--dpi-desync-fake-tls-mod=none']),
-      ...googleRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        '--dpi-desync-fake-tls-mod=none']),
-      ...generalTcpRule('fake', ['--dpi-desync-repeats=6', '--dpi-desync-fooling=ts',
-        '--dpi-desync-fake-tls-mod=none'])
+      ...rule1_udpQuic(6),
+      ...rule2_udpDiscordVoice(),
+      ...rule3_discordMedia('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1']),
+      ...discordTcp443Rule('multisplit', ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1']),
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
+      '--filter-tcp=80', '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1', '--new',
+      ...rule6_ipsetUdpFallback(6),
+      ...rule8_gameUdp(12, 'n2')
     ]}
   ];
 }
@@ -2083,6 +2191,32 @@ ipcMain.handle('open-external', (event, url) => {
 // Update hosts file for Discord voice — Flowseal: "для подключения к голосовому чату Discord"
 const HOSTS_URL = 'https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/main/.service/hosts';
 const HOSTS_MARKER = '# UnblockPro Discord/Telegram hosts';
+
+// Embedded fallback hosts data — used when GitHub download fails.
+// Includes Telegram web hosts and Discord voice servers (finland10000-10199.discord.media).
+function generateFallbackHostsData() {
+  const lines = [];
+  // Telegram web
+  const tgDomains = [
+    'telegram.me', 'telegram.dog', 'telegram.space', 'telesco.pe', 'tg.dev',
+    'kws2.web.telegram.org', 'kws2-1.web.telegram.org', 'kws1-1.web.telegram.org',
+    'kws1.web.telegram.org', 'telegram.org', 't.me', 'api.telegram.org',
+    'pluto.web.telegram.org', 'pluto-1.web.telegram.org', 'flora.web.telegram.org',
+    'td.telegram.org', 'venus.web.telegram.org', 'web.telegram.org',
+    'kws4-1.web.telegram.org', 'kws4.web.telegram.org', 'kws5-1.web.telegram.org',
+    'kws5.web.telegram.org', 'zws1-1.web.telegram.org', 'zws1.web.telegram.org',
+    'zws2-1.web.telegram.org', 'zws2.web.telegram.org', 'zws4-1.web.telegram.org',
+    'zws5-1.web.telegram.org', 'zws5.web.telegram.org'
+  ];
+  for (const d of tgDomains) lines.push(`149.154.167.220 ${d}`);
+  lines.push('');
+  // Discord voice servers (finland region, ports 10000-10199)
+  for (let i = 10000; i <= 10199; i++) {
+    lines.push(`104.25.158.178 finland${i}.discord.media`);
+  }
+  return lines.join('\n');
+}
+
 function getHostsPath() {
   return path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'drivers', 'etc', 'hosts');
 }
@@ -2104,29 +2238,37 @@ function buildHostsUpdateScript(hostsPath, tempFile) {
 async function prepareHostsUpdateForBatch(tempDir) {
   const tempFile = path.join(tempDir, 'unblock-pro-hosts-discord.txt');
   const psScriptPath = path.join(tempDir, 'unblock-pro-update-hosts.ps1');
-  return new Promise((resolve) => {
-    const req = https.get(HOSTS_URL, { timeout: 15000 }, (res) => {
-      if (res.statusCode !== 200) {
-        resolve({ success: false });
-        return;
-      }
+
+  // First check if hosts already has our marker — skip entirely
+  try {
+    const currentHosts = fs.readFileSync(getHostsPath(), 'utf8');
+    if (currentHosts.includes(HOSTS_MARKER)) {
+      return { success: true, psScriptPath: null };
+    }
+  } catch (e) {}
+
+  // Try downloading latest from GitHub
+  const downloaded = await new Promise((resolve) => {
+    const req = https.get(HOSTS_URL, { timeout: 10000 }, (res) => {
+      if (res.statusCode !== 200) { resolve(null); return; }
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        try {
-          const body = Buffer.concat(chunks).toString('utf8');
-          fs.writeFileSync(tempFile, body, 'utf8');
-          const script = buildHostsUpdateScript(getHostsPath(), tempFile);
-          fs.writeFileSync(psScriptPath, script, 'utf8');
-          resolve({ success: true, psScriptPath });
-        } catch (e) {
-          resolve({ success: false });
-        }
-      });
+      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     });
-    req.on('error', () => resolve({ success: false }));
-    req.on('timeout', () => { req.destroy(); resolve({ success: false }); });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
   });
+
+  // Use downloaded data or fall back to embedded data
+  const hostsData = downloaded || generateFallbackHostsData();
+  try {
+    fs.writeFileSync(tempFile, hostsData, 'utf8');
+    const script = buildHostsUpdateScript(getHostsPath(), tempFile);
+    fs.writeFileSync(psScriptPath, script, 'utf8');
+    return { success: true, psScriptPath };
+  } catch (e) {
+    return { success: false };
+  }
 }
 ipcMain.handle('update-hosts-for-discord', async () => {
   if (process.platform !== 'win32') {
