@@ -36,6 +36,17 @@ const logsBody = document.getElementById('logsBody');
 const logsList = document.getElementById('logsList');
 const logsCount = document.getElementById('logsCount');
 
+// Custom domains elements
+const domainsToggle = document.getElementById('domainsToggle');
+const domainsChevron = document.getElementById('domainsChevron');
+const domainsBody = document.getElementById('domainsBody');
+const includeList = document.getElementById('includeList');
+const excludeList = document.getElementById('excludeList');
+const includeInput = document.getElementById('includeInput');
+const excludeInput = document.getElementById('excludeInput');
+const includeAddBtn = document.getElementById('includeAddBtn');
+const excludeAddBtn = document.getElementById('excludeAddBtn');
+
 // State
 let isConnected = false;
 let isConnecting = false;
@@ -44,6 +55,9 @@ let timerInterval = null;
 let connectedSinceTime = null;
 let logsOpen = false;
 let logCount = 0;
+let domainsOpen = false;
+let customIncludeDomains = [];
+let customExcludeDomains = [];
 
 // Update elements
 const updateBanner = document.getElementById('updateBanner');
@@ -79,7 +93,8 @@ async function init() {
         loadStrategies(),
         loadStatus(),
         loadSettings(),
-        loadLogs()
+        loadLogs(),
+        loadCustomDomains()
       ]),
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000))
     ]);
@@ -128,6 +143,19 @@ function setupEventListeners() {
     handleConnectClick();
   });
   
+  // Domains toggle
+  domainsToggle.addEventListener('click', () => {
+    domainsOpen = !domainsOpen;
+    domainsBody.style.display = domainsOpen ? 'block' : 'none';
+    domainsChevron.classList.toggle('open', domainsOpen);
+  });
+
+  // Domain add buttons
+  includeAddBtn.addEventListener('click', () => addDomain('include'));
+  excludeAddBtn.addEventListener('click', () => addDomain('exclude'));
+  includeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addDomain('include'); });
+  excludeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addDomain('exclude'); });
+
   // Logs toggle
   logsToggle.addEventListener('click', () => {
     logsOpen = !logsOpen;
@@ -603,6 +631,90 @@ document.getElementById('tgLink')?.addEventListener('click', (e) => {
 document.getElementById('promoBtn')?.addEventListener('click', () => {
   window.api.openExternal('https://t.me/bysonicvpn_bot');
 });
+
+// ============= Custom Domains =============
+
+async function loadCustomDomains() {
+  try {
+    const data = await window.api.getCustomDomains();
+    customIncludeDomains = data.include || [];
+    customExcludeDomains = data.exclude || [];
+    renderDomainList('include');
+    renderDomainList('exclude');
+  } catch (e) {}
+}
+
+function renderDomainList(type) {
+  const list = type === 'include' ? includeList : excludeList;
+  const domains = type === 'include' ? customIncludeDomains : customExcludeDomains;
+
+  list.innerHTML = '';
+  if (domains.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'domain-empty';
+    empty.textContent = type === 'include' ? 'Нет добавленных доменов' : 'Нет исключённых доменов';
+    list.appendChild(empty);
+    return;
+  }
+
+  domains.forEach((domain, i) => {
+    const tag = document.createElement('span');
+    tag.className = `domain-tag ${type}`;
+    tag.innerHTML = `
+      ${escapeHtml(domain)}
+      <button class="domain-remove" title="Удалить">
+        <svg width="10" height="10" viewBox="0 0 14 14">
+          <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+    `;
+    tag.querySelector('.domain-remove').addEventListener('click', () => removeDomain(type, i));
+    list.appendChild(tag);
+  });
+}
+
+function isValidDomain(str) {
+  return /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$/.test(str);
+}
+
+async function addDomain(type) {
+  const input = type === 'include' ? includeInput : excludeInput;
+  const domain = input.value.trim().toLowerCase();
+
+  if (!domain) return;
+  if (!isValidDomain(domain)) {
+    input.style.borderColor = 'var(--accent-red)';
+    setTimeout(() => { input.style.borderColor = ''; }, 1500);
+    return;
+  }
+
+  const domains = type === 'include' ? customIncludeDomains : customExcludeDomains;
+  if (domains.includes(domain)) {
+    input.value = '';
+    return;
+  }
+
+  domains.push(domain);
+  input.value = '';
+  renderDomainList(type);
+  await saveCustomDomains();
+}
+
+async function removeDomain(type, index) {
+  const domains = type === 'include' ? customIncludeDomains : customExcludeDomains;
+  domains.splice(index, 1);
+  renderDomainList(type);
+  await saveCustomDomains();
+}
+
+async function saveCustomDomains() {
+  try {
+    await window.api.setCustomDomains({
+      include: customIncludeDomains,
+      exclude: customExcludeDomains
+    });
+  } catch (e) {}
+}
 
 // Start
 init();

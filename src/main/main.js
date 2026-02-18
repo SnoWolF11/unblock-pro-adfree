@@ -188,16 +188,25 @@ function ensureHostLists() {
   hostListsDir = path.join(app.getPath('userData'), 'lists');
   fs.mkdirSync(hostListsDir, { recursive: true });
 
-  // Always rewrite host lists to pick up domain list updates
-  fs.writeFileSync(path.join(hostListsDir, 'list-general.txt'), HOST_LIST_GENERAL, 'utf8');
+  const settings = loadSettings();
+  const customInclude = (settings.customIncludeDomains || []).filter(d => d.trim()).join('\n');
+  const customExclude = (settings.customExcludeDomains || []).filter(d => d.trim()).join('\n');
+
+  const generalWithCustom = customInclude
+    ? HOST_LIST_GENERAL + '\n' + customInclude
+    : HOST_LIST_GENERAL;
+  const excludeWithCustom = customExclude
+    ? HOST_LIST_EXCLUDE + '\n' + customExclude
+    : HOST_LIST_EXCLUDE;
+
+  fs.writeFileSync(path.join(hostListsDir, 'list-general.txt'), generalWithCustom, 'utf8');
   fs.writeFileSync(path.join(hostListsDir, 'list-google.txt'), HOST_LIST_GOOGLE, 'utf8');
   fs.writeFileSync(path.join(hostListsDir, 'list-discord.txt'), HOST_LIST_DISCORD, 'utf8');
-  fs.writeFileSync(path.join(hostListsDir, 'list-exclude.txt'), HOST_LIST_EXCLUDE, 'utf8');
+  fs.writeFileSync(path.join(hostListsDir, 'list-exclude.txt'), excludeWithCustom, 'utf8');
   fs.writeFileSync(path.join(hostListsDir, 'ipset-exclude.txt'), IPSET_EXCLUDE, 'utf8');
   fs.writeFileSync(path.join(hostListsDir, 'ipset-all.txt'), IPSET_ALL, 'utf8');
 
-  // Combined list for macOS tpws — all domains that need DPI bypass in a single file
-  const HOST_LIST_ALL = HOST_LIST_GENERAL + '\n' + HOST_LIST_GOOGLE + '\n' + HOST_LIST_DISCORD;
+  const HOST_LIST_ALL = generalWithCustom + '\n' + HOST_LIST_GOOGLE + '\n' + HOST_LIST_DISCORD;
   fs.writeFileSync(path.join(hostListsDir, 'list-all.txt'), HOST_LIST_ALL, 'utf8');
 
   return hostListsDir;
@@ -2521,6 +2530,23 @@ ipcMain.handle('set-selected-strategy', (event, strategyName) => {
   const settings = loadSettings();
   settings.selectedStrategy = strategyName; // 'auto' or strategy name
   saveSettings(settings);
+  return { success: true };
+});
+
+ipcMain.handle('get-custom-domains', () => {
+  const settings = loadSettings();
+  return {
+    include: settings.customIncludeDomains || [],
+    exclude: settings.customExcludeDomains || []
+  };
+});
+
+ipcMain.handle('set-custom-domains', (event, { include, exclude }) => {
+  const settings = loadSettings();
+  settings.customIncludeDomains = (include || []).map(d => d.trim().toLowerCase()).filter(Boolean);
+  settings.customExcludeDomains = (exclude || []).map(d => d.trim().toLowerCase()).filter(Boolean);
+  saveSettings(settings);
+  ensureHostLists();
   return { success: true };
 });
 

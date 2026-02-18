@@ -194,6 +194,73 @@
         </div>
       </div>
 
+      <!-- Custom domains -->
+      <div class="domains-card" id="domainsCard">
+        <button class="domains-header" id="domainsToggle">
+          <div class="domains-header-left">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+              <path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" stroke="currentColor" stroke-width="2"/>
+            </svg>
+            <span>Свои домены</span>
+          </div>
+          <svg class="domains-chevron" id="domainsChevron" width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div class="domains-body" id="domainsBody" style="display: none;">
+          <!-- Include domains -->
+          <div class="domain-section">
+            <div class="domain-section-header">
+              <div class="domain-section-title include">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 5v14m-7-7h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                Разблокировать
+              </div>
+              <span class="domain-section-hint">Обход будет применяться к этим доменам</span>
+            </div>
+            <div class="domain-list" id="includeList"></div>
+            <div class="domain-add-row">
+              <input type="text" class="domain-input" id="includeInput" placeholder="example.com" spellcheck="false">
+              <button class="domain-add-btn" id="includeAddBtn" title="Добавить домен">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 5v14m-7-7h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <!-- Exclude domains -->
+          <div class="domain-section">
+            <div class="domain-section-header">
+              <div class="domain-section-title exclude">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <path d="M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                Исключить
+              </div>
+              <span class="domain-section-hint">Обход НЕ будет применяться к этим доменам</span>
+            </div>
+            <div class="domain-list" id="excludeList"></div>
+            <div class="domain-add-row">
+              <input type="text" class="domain-input" id="excludeInput" placeholder="example.ru" spellcheck="false">
+              <button class="domain-add-btn exclude" id="excludeAddBtn" title="Добавить домен">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 5v14m-7-7h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="domain-note">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+              <path d="M12 16V12M12 8H12.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            Переподключитесь после изменения списков
+          </div>
+        </div>
+      </div>
+
       <!-- Logs panel -->
       <div class="logs-card" id="logsCard">
         <button class="logs-header" id="logsToggle">

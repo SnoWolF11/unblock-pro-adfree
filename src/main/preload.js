@@ -33,6 +33,10 @@ contextBridge.exposeInMainWorld('api', {
   getLogs: () => ipcRenderer.invoke('get-logs'),
   clearError: () => ipcRenderer.invoke('clear-error'),
   
+  // Custom domains
+  getCustomDomains: () => ipcRenderer.invoke('get-custom-domains'),
+  setCustomDomains: (data) => ipcRenderer.invoke('set-custom-domains', data),
+
   // External links
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   updateHostsForDiscord: () => ipcRenderer.invoke('update-hosts-for-discord'),
