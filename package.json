@@ -75,7 +75,7 @@
       "artifactName": "UnblockPro-${version}-mac-${arch}.${ext}"
     },
     "win": {
-      "icon": "assets/sonic-icon.ico",
+      "icon": "assets/sonic-icon.png",
       "target": [
         {
           "target": "nsis",
