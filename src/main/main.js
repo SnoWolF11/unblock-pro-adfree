@@ -866,7 +866,124 @@ function buildWin32Strategies(binDir, listsDir) {
       '--filter-tcp=80', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--new',
       ...rule6_ipsetUdpFallback(11),
       ...rule8_gameUdp(11, 'n2')
-    ]}
+    ]},
+
+    // ========== TSPU-optimized strategies (SNI filtering with silent drop) ==========
+
+    // md5sig fooling — bypasses TSPU connection tracker (proven Feb 2026)
+    { name: 'fake-md5sig', args: std8('fake',
+      ['--dpi-desync-repeats=11', '--dpi-desync-fooling=md5sig', `--dpi-desync-fake-tls=${tG}`],
+      ['--dpi-desync-repeats=11', '--dpi-desync-fooling=md5sig', `--dpi-desync-fake-tls=${tG}`],
+      ['--dpi-desync-repeats=11', '--dpi-desync-fooling=md5sig', `--dpi-desync-fake-tls=${tG}`, `--dpi-desync-fake-http=${tM}`],
+      ['--dpi-desync-repeats=11', '--dpi-desync-fooling=md5sig', `--dpi-desync-fake-tls=${tG}`, `--dpi-desync-fake-http=${tM}`],
+      { cutoff: 'n2' })
+    },
+
+    // md5sig + badseq double fooling — for ISPs that detect single fooling method
+    { name: 'fake-md5sig+badseq', args: std8('fake',
+      ['--dpi-desync-repeats=11', '--dpi-desync-fooling=md5sig,badseq', '--dpi-desync-badseq-increment=1', `--dpi-desync-fake-tls=${tG}`],
+      ['--dpi-desync-repeats=11', '--dpi-desync-fooling=md5sig,badseq', '--dpi-desync-badseq-increment=1', `--dpi-desync-fake-tls=${tG}`],
+      ['--dpi-desync-repeats=11', '--dpi-desync-fooling=md5sig,badseq', '--dpi-desync-badseq-increment=1', `--dpi-desync-fake-tls=${tG}`, `--dpi-desync-fake-http=${tM}`],
+      ['--dpi-desync-repeats=11', '--dpi-desync-fooling=md5sig,badseq', '--dpi-desync-badseq-increment=1', `--dpi-desync-fake-tls=${tG}`, `--dpi-desync-fake-http=${tM}`],
+      { cutoff: 'n2' })
+    },
+
+    // disorder-only — pure packet reorder without fake (low overhead, fast)
+    { name: 'disorder-midsld', args: std8('multidisorder',
+      ['--dpi-desync-split-pos=1,midsld'],
+      ['--dpi-desync-split-pos=1,midsld'],
+      ['--dpi-desync-split-pos=1,midsld'],
+      ['--dpi-desync-split-pos=1,midsld'],
+      { cutoff: 'n2' })
+    },
+
+    // Very low seqovl — minimal overlap, effective when DPI has simple reassembly
+    { name: 'multisplit-seqovl-2', args: std8('multisplit',
+      ['--dpi-desync-split-seqovl=2', '--dpi-desync-split-pos=2'],
+      ['--dpi-desync-split-seqovl=2', '--dpi-desync-split-pos=2'],
+      ['--dpi-desync-split-seqovl=2', '--dpi-desync-split-pos=2'],
+      ['--dpi-desync-split-seqovl=2', '--dpi-desync-split-pos=2'],
+      { cutoff: 'n2' })
+    },
+
+    // fake,disorder with TLS mod + midsld split (latest TSPU bypass, Feb 2026)
+    { name: 'fake-disorder-tlsmod', args: [
+      ...WF_FULL,
+      ...rule1_udpQuic(11),
+      ...rule2_udpDiscordVoice(),
+      ...rule3_discordMedia('fake,multidisorder', [
+        '--dpi-desync-split-pos=midsld', '--dpi-desync-repeats=11',
+        '--dpi-desync-fooling=md5sig', '--dpi-desync-fake-tls-mod=rnd,sni=www.google.com']),
+      ...rule4_google('fake,multidisorder', [
+        '--dpi-desync-split-pos=midsld', '--dpi-desync-repeats=11',
+        '--dpi-desync-fooling=md5sig', '--dpi-desync-fake-tls-mod=rnd,sni=www.google.com']),
+      ...rule5_generalTcp('fake,multidisorder', [
+        '--dpi-desync-split-pos=midsld', '--dpi-desync-repeats=11',
+        '--dpi-desync-fooling=md5sig', '--dpi-desync-fake-tls-mod=rnd,sni=ya.ru', `--dpi-desync-fake-http=${tM}`]),
+      ...rule6_ipsetUdpFallback(11),
+      ...rule7_ipsetTcpFallback('fake,multidisorder', [
+        '--dpi-desync-split-pos=midsld', '--dpi-desync-repeats=11',
+        '--dpi-desync-fooling=md5sig', '--dpi-desync-fake-tls-mod=rnd,sni=ya.ru', `--dpi-desync-fake-http=${tM}`]),
+      ...rule8_gameUdp(11, 'n2')
+    ]},
+
+    // COMBO: Discord md5sig + YouTube syndata (optimized for TSPU Feb 2026)
+    { name: 'combo:syndata+md5sig', args: [
+      ...WF_FULL,
+      ...rule1_udpQuic(6),
+      ...rule2_udpDiscordVoice(),
+      ...rule3_discordMedia('fake', ['--dpi-desync-repeats=11', '--dpi-desync-fooling=md5sig', `--dpi-desync-fake-tls=${tG}`]),
+      ...discordTcp443Rule('fake', ['--dpi-desync-repeats=11', '--dpi-desync-fooling=md5sig', `--dpi-desync-fake-tls=${tG}`]),
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
+      '--filter-tcp=80', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=md5sig', '--new',
+      ...rule6_ipsetUdpFallback(6),
+      ...rule8_gameUdp(12, 'n2')
+    ]},
+
+    // fake,fakedsplit with md5sig — alternative to ts fooling
+    { name: 'fakedsplit-md5sig', args: std8('fake,fakedsplit',
+      ['--dpi-desync-repeats=11', '--dpi-desync-fooling=md5sig', '--dpi-desync-fakedsplit-pattern=0x00', `--dpi-desync-fake-tls=${tG}`],
+      ['--dpi-desync-repeats=11', '--dpi-desync-fooling=md5sig', '--dpi-desync-fakedsplit-pattern=0x00', `--dpi-desync-fake-tls=${tG}`],
+      ['--dpi-desync-repeats=11', '--dpi-desync-fooling=md5sig', '--dpi-desync-fakedsplit-pattern=0x00', `--dpi-desync-fake-tls=${tG}`, `--dpi-desync-fake-http=${tM}`],
+      ['--dpi-desync-repeats=11', '--dpi-desync-fooling=md5sig', '--dpi-desync-fakedsplit-pattern=0x00', `--dpi-desync-fake-tls=${tG}`, `--dpi-desync-fake-http=${tM}`],
+      { cutoff: 'n3' })
+    },
+
+    // Triple fooling: ts + badseq + md5sig for most aggressive TSPU evasion
+    { name: 'fake-triple-fooling', args: std8('fake',
+      ['--dpi-desync-repeats=11', '--dpi-desync-fooling=ts,badseq,md5sig', `--dpi-desync-fake-tls=${tG}`],
+      ['--dpi-desync-repeats=11', '--dpi-desync-fooling=ts,badseq,md5sig', `--dpi-desync-fake-tls=${tG}`],
+      ['--dpi-desync-repeats=11', '--dpi-desync-fooling=ts,badseq,md5sig', `--dpi-desync-fake-tls=${tG}`, `--dpi-desync-fake-http=${tM}`],
+      ['--dpi-desync-repeats=11', '--dpi-desync-fooling=ts,badseq,md5sig', `--dpi-desync-fake-tls=${tG}`, `--dpi-desync-fake-http=${tM}`],
+      { cutoff: 'n2' })
+    },
+
+    // COMBO: Discord hostfakesplit+md5sig + YouTube syndata
+    { name: 'combo:syndata+hostfake-md5sig', args: [
+      ...WF_FULL,
+      ...rule1_udpQuic(6),
+      ...rule2_udpDiscordVoice(),
+      ...rule3_discordMedia('fake,hostfakesplit', [
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com',
+        '--dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1', '--dpi-desync-fooling=md5sig']),
+      ...discordTcp443Rule('fake,hostfakesplit', [
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com',
+        '--dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1', '--dpi-desync-fooling=md5sig']),
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
+      '--filter-tcp=80', '--dpi-desync=fake,hostfakesplit', '--dpi-desync-fooling=md5sig',
+      '--dpi-desync-hostfakesplit-mod=host=ya.ru,altorder=1', '--new',
+      ...rule6_ipsetUdpFallback(6),
+      ...rule8_gameUdp(12, 'n2')
+    ]},
+
+    // multisplit with midsld position — splits exactly at SLD boundary
+    { name: 'multisplit-midsld', args: std8('multisplit',
+      ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=midsld', `--dpi-desync-split-seqovl-pattern=${tG}`],
+      ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=midsld', `--dpi-desync-split-seqovl-pattern=${tG}`],
+      ['--dpi-desync-split-seqovl=568', '--dpi-desync-split-pos=midsld', `--dpi-desync-split-seqovl-pattern=${t4}`],
+      ['--dpi-desync-split-seqovl=568', '--dpi-desync-split-pos=midsld', `--dpi-desync-split-seqovl-pattern=${t4}`],
+      { cutoff: 'n2' })
+    },
   ];
 }
 

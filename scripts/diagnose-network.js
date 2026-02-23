@@ -90,6 +90,13 @@ function findListsDir() {
   for (const p of candidates) {
     if (fs.existsSync(p) && fs.existsSync(path.join(p, 'list-general.txt'))) return p;
   }
+  // Auto-generate if not found
+  const genScript = path.join(__dirname, 'generate-lists.js');
+  if (fs.existsSync(genScript)) {
+    try { execSync(`node "${genScript}"`, { stdio: 'pipe' }); } catch (e) {}
+    const fallback = path.join(__dirname, '..', 'lists');
+    if (fs.existsSync(fallback) && fs.existsSync(path.join(fallback, 'list-general.txt'))) return fallback;
+  }
   return null;
 }
 
@@ -535,6 +542,63 @@ function buildStrategies(binDir, listsDir) {
       '--filter-l3=ipv4','--filter-tcp=443','--dpi-desync=syndata,multidisorder','--new',
       '--filter-tcp=80','--dpi-desync=fake','--dpi-desync-repeats=6','--dpi-desync-fooling=badseq','--new',
       ...r6(11),...r8(11,'n2')] },
+    { name: 'fake-md5sig', args: std8('fake',
+      ['--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig',`--dpi-desync-fake-tls=${tG}`],
+      ['--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig',`--dpi-desync-fake-tls=${tG}`],
+      ['--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig',`--dpi-desync-fake-tls=${tG}`,`--dpi-desync-fake-http=${tM}`],
+      ['--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig',`--dpi-desync-fake-tls=${tG}`,`--dpi-desync-fake-http=${tM}`],
+      {cutoff:'n2'}) },
+    { name: 'fake-md5sig+badseq', args: std8('fake',
+      ['--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig,badseq','--dpi-desync-badseq-increment=1',`--dpi-desync-fake-tls=${tG}`],
+      ['--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig,badseq','--dpi-desync-badseq-increment=1',`--dpi-desync-fake-tls=${tG}`],
+      ['--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig,badseq','--dpi-desync-badseq-increment=1',`--dpi-desync-fake-tls=${tG}`,`--dpi-desync-fake-http=${tM}`],
+      ['--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig,badseq','--dpi-desync-badseq-increment=1',`--dpi-desync-fake-tls=${tG}`,`--dpi-desync-fake-http=${tM}`],
+      {cutoff:'n2'}) },
+    { name: 'disorder-midsld', args: std8('multidisorder',
+      ['--dpi-desync-split-pos=1,midsld'],['--dpi-desync-split-pos=1,midsld'],
+      ['--dpi-desync-split-pos=1,midsld'],['--dpi-desync-split-pos=1,midsld'],
+      {cutoff:'n2'}) },
+    { name: 'multisplit-seqovl-2', args: std8('multisplit',
+      ['--dpi-desync-split-seqovl=2','--dpi-desync-split-pos=2'],['--dpi-desync-split-seqovl=2','--dpi-desync-split-pos=2'],
+      ['--dpi-desync-split-seqovl=2','--dpi-desync-split-pos=2'],['--dpi-desync-split-seqovl=2','--dpi-desync-split-pos=2'],
+      {cutoff:'n2'}) },
+    { name: 'fake-disorder-tlsmod', args: [...WF,...r1(11),...r2(),
+      ...r3('fake,multidisorder',['--dpi-desync-split-pos=midsld','--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig','--dpi-desync-fake-tls-mod=rnd,sni=www.google.com']),
+      ...r4('fake,multidisorder',['--dpi-desync-split-pos=midsld','--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig','--dpi-desync-fake-tls-mod=rnd,sni=www.google.com']),
+      ...r5('fake,multidisorder',['--dpi-desync-split-pos=midsld','--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig','--dpi-desync-fake-tls-mod=rnd,sni=ya.ru',`--dpi-desync-fake-http=${tM}`]),
+      ...r6(11),
+      ...r7('fake,multidisorder',['--dpi-desync-split-pos=midsld','--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig','--dpi-desync-fake-tls-mod=rnd,sni=ya.ru',`--dpi-desync-fake-http=${tM}`]),
+      ...r8(11,'n2')] },
+    { name: 'combo:syndata+md5sig', args: [...WF,...r1(6),...r2(),
+      ...r3('fake',['--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig',`--dpi-desync-fake-tls=${tG}`]),
+      ...discTcp('fake',['--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig',`--dpi-desync-fake-tls=${tG}`]),
+      '--filter-l3=ipv4','--filter-tcp=443','--dpi-desync=syndata,multidisorder','--new',
+      '--filter-tcp=80','--dpi-desync=fake','--dpi-desync-repeats=6','--dpi-desync-fooling=md5sig','--new',
+      ...r6(6),...r8(12,'n2')] },
+    { name: 'fakedsplit-md5sig', args: std8('fake,fakedsplit',
+      ['--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig','--dpi-desync-fakedsplit-pattern=0x00',`--dpi-desync-fake-tls=${tG}`],
+      ['--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig','--dpi-desync-fakedsplit-pattern=0x00',`--dpi-desync-fake-tls=${tG}`],
+      ['--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig','--dpi-desync-fakedsplit-pattern=0x00',`--dpi-desync-fake-tls=${tG}`,`--dpi-desync-fake-http=${tM}`],
+      ['--dpi-desync-repeats=11','--dpi-desync-fooling=md5sig','--dpi-desync-fakedsplit-pattern=0x00',`--dpi-desync-fake-tls=${tG}`,`--dpi-desync-fake-http=${tM}`],
+      {cutoff:'n3'}) },
+    { name: 'fake-triple-fooling', args: std8('fake',
+      ['--dpi-desync-repeats=11','--dpi-desync-fooling=ts,badseq,md5sig',`--dpi-desync-fake-tls=${tG}`],
+      ['--dpi-desync-repeats=11','--dpi-desync-fooling=ts,badseq,md5sig',`--dpi-desync-fake-tls=${tG}`],
+      ['--dpi-desync-repeats=11','--dpi-desync-fooling=ts,badseq,md5sig',`--dpi-desync-fake-tls=${tG}`,`--dpi-desync-fake-http=${tM}`],
+      ['--dpi-desync-repeats=11','--dpi-desync-fooling=ts,badseq,md5sig',`--dpi-desync-fake-tls=${tG}`,`--dpi-desync-fake-http=${tM}`],
+      {cutoff:'n2'}) },
+    { name: 'combo:syndata+hostfake-md5sig', args: [...WF,...r1(6),...r2(),
+      ...r3('fake,hostfakesplit',['--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com','--dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1','--dpi-desync-fooling=md5sig']),
+      ...discTcp('fake,hostfakesplit',['--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com','--dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1','--dpi-desync-fooling=md5sig']),
+      '--filter-l3=ipv4','--filter-tcp=443','--dpi-desync=syndata,multidisorder','--new',
+      '--filter-tcp=80','--dpi-desync=fake,hostfakesplit','--dpi-desync-fooling=md5sig','--dpi-desync-hostfakesplit-mod=host=ya.ru,altorder=1','--new',
+      ...r6(6),...r8(12,'n2')] },
+    { name: 'multisplit-midsld', args: std8('multisplit',
+      ['--dpi-desync-split-seqovl=681','--dpi-desync-split-pos=midsld',`--dpi-desync-split-seqovl-pattern=${tG}`],
+      ['--dpi-desync-split-seqovl=681','--dpi-desync-split-pos=midsld',`--dpi-desync-split-seqovl-pattern=${tG}`],
+      ['--dpi-desync-split-seqovl=568','--dpi-desync-split-pos=midsld',`--dpi-desync-split-seqovl-pattern=${t4}`],
+      ['--dpi-desync-split-seqovl=568','--dpi-desync-split-pos=midsld',`--dpi-desync-split-seqovl-pattern=${t4}`],
+      {cutoff:'n2'}) },
   ];
 }
 
