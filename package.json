@@ -30,7 +30,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/by-sonic/unblock-pro"
+    "url": "https://github.com/SnoWolF11/unblock-pro-adfree"
   },
   "devDependencies": {
     "electron": "^28.1.0",
@@ -100,9 +100,13 @@
     "portable": {
       "artifactName": "UnblockPro-${version}-win-portable.${ext}"
     },
-    "publish": {
-      "provider": "github",
-      "releaseType": "release"
-    }
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "SnoWolF11",
+        "repo": "unblock-pro-adfree",
+        "releaseType": "release"
+      }
+    ]
   }
 }

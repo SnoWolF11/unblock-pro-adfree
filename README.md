@@ -1,4 +1,4 @@
-# UnblockPro — Обход блокировок Discord и YouTube
+# UnblockPro — Обход блокировок Discord и YouTube (adfree fork)
 
 
 <p align="center">
@@ -7,24 +7,24 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/by-sonic/unblock-pro/releases/latest"><img src="https://img.shields.io/github/v/release/by-sonic/unblock-pro?style=for-the-badge&color=blue&label=version" alt="Version"></a>
-  <a href="https://github.com/by-sonic/unblock-pro/releases/latest"><img src="https://img.shields.io/github/downloads/by-sonic/unblock-pro/total?style=for-the-badge&color=green&label=downloads" alt="Downloads"></a>
-  <a href="https://github.com/by-sonic/unblock-pro/blob/main/LICENSE"><img src="https://img.shields.io/github/license/by-sonic/unblock-pro?style=for-the-badge&color=purple" alt="License"></a>
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue?style=for-the-badge" alt="Platform">
+  Оригинальный проект: <a href="https://github.com/by-sonic/unblock-pro">by-sonic/unblock-pro</a><br>
+  Этот форк: без встроенной рекламы SonicVPN, совместимый по настройкам и форматам релизов
 </p>
 
 ---
 
 ## Скачать
 
+Релизы этого форка: <https://github.com/SnoWolF11/unblock-pro-adfree/releases>
+
 | Платформа | Файл | Описание |
 |-----------|------|----------|
-| **macOS** Apple Silicon (M1/M2/M3/M4) | [UnblockPro-mac-arm64.zip](https://github.com/by-sonic/unblock-pro/releases/latest) | Для Mac с M-процессором |
-| **macOS** Intel | [UnblockPro-mac-x64.zip](https://github.com/by-sonic/unblock-pro/releases/latest) | Для Mac с Intel |
-| **Windows** | [UnblockPro-win-setup.exe](https://github.com/by-sonic/unblock-pro/releases/latest) | Установщик |
-| **Windows** | [UnblockPro-win-portable.exe](https://github.com/by-sonic/unblock-pro/releases/latest) | Портативная версия (без установки) |
+| **macOS** Apple Silicon (M1/M2/M3/M4) | `UnblockPro-*-mac-arm64.zip` | Для Mac с M-процессором |
+| **macOS** Intel | `UnblockPro-*-mac-x64.zip` | Для Mac с Intel |
+| **Windows** | `UnblockPro-*-win-setup.exe` | Установщик |
+| **Windows** | `UnblockPro-*-win-portable.exe` | Портативная версия (без установки) |
 
-> Перейдите в [Releases](https://github.com/by-sonic/unblock-pro/releases/latest) и скачайте версию для вашей ОС
+> Перейдите в раздел Releases этого репозитория и скачайте версию для вашей ОС
 
 ---
 
@@ -171,6 +171,14 @@ npm run build:win
 <p align="center">
   <strong>by sonic</strong><br>
   <sub>Если проект помог — поставь ⭐️</sub>
+</p>
+
+
+---
+
+<p align="center">
+  <strong>Fork by SnoWolF11</strong><br>
+  <sub>Основан на проекте by sonic, лицензия MIT сохраняется без изменений</sub>
 </p>
 
 ---
