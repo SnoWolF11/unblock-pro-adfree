@@ -62,15 +62,16 @@ UnblockPro использует технологию [zapret](https://github.com
 
 ### macOS
 
-1. Скачайте `UnblockPro-*-mac.zip` из [Releases](https://github.com/by-sonic/unblock-pro/releases/latest)
-2. Распакуйте ZIP и перетащите `UnblockPro.app` в папку «Программы»
+1. Скачайте `UnblockPro_Adfree-*-mac.zip` из [Releases](https://github.com/SnoWolF11/unblock-pro-adfree/releases)
+2. Распакуйте ZIP и перетащите `UnblockPro_Adfree.app` в папку «Программы»
 3. **Откройте Терминал** и выполните команду:
 
 ```bash
-xattr -cr /Applications/UnblockPro.app
+xattr -cr /Applications/UnblockPro_Adfree.app
 ```
 
 4. Запустите приложение и нажмите «Подключить»
+
 
 > **Зачем нужна команда?** macOS блокирует приложения без платной подписи Apple Developer ($99/год). Команда `xattr -cr` снимает карантинный флаг — это безопасно, код проекта полностью открыт. Работает на Intel и Apple Silicon (M1/M2/M3).
 

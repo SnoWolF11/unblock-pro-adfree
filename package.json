@@ -42,7 +42,7 @@
   },
   "build": {
     "appId": "com.sonic.unblockpro",
-    "productName": "UnblockPro AdFree",
+    "productName": "UnblockPro_Adfree",
     "directories": {
       "output": "dist"
     },
@@ -72,7 +72,7 @@
       ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "artifactName": "UnblockPro-${version}-adfree-mac-${arch}.${ext}"
+      "artifactName": "UnblockPro_Adfree-${version}-mac-${arch}.${ext}"
     },
     "win": {
       "icon": "assets/sonic-icon.png",
@@ -95,10 +95,10 @@
     "nsis": {
       "oneClick": true,
       "perMachine": true,
-      "artifactName": "UnblockPro-${version}-adfree-win-setup.${ext}"
+      "artifactName": "UnblockPro_Adfree-${version}-win-setup.${ext}"
     },
     "portable": {
-      "artifactName": "UnblockPro-${version}-adfree-win-portable.${ext}"
+      "artifactName": "UnblockPro_Adfree-${version}-win-portable.${ext}"
     },
     "publish": [
       {
