@@ -1,7 +1,7 @@
 {
   "name": "unblock-pro",
-  "version": "2.0.15",
-  "description": "Обход блокировок Discord и YouTube в России — автоматический DPI bypass для macOS и Windows",
+  "version": "2.0.15-adfree",
+  "description": "Обход блокировок Discord и YouTube в России — автоматический DPI bypass для macOS и Windows (adfree fork)",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
@@ -42,7 +42,7 @@
   },
   "build": {
     "appId": "com.sonic.unblockpro",
-    "productName": "UnblockPro",
+    "productName": "UnblockPro AdFree",
     "directories": {
       "output": "dist"
     },
@@ -72,7 +72,7 @@
       ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "artifactName": "UnblockPro-${version}-mac-${arch}.${ext}"
+      "artifactName": "UnblockPro-${version}-adfree-mac-${arch}.${ext}"
     },
     "win": {
       "icon": "assets/sonic-icon.png",
@@ -95,10 +95,10 @@
     "nsis": {
       "oneClick": true,
       "perMachine": true,
-      "artifactName": "UnblockPro-${version}-win-setup.${ext}"
+      "artifactName": "UnblockPro-${version}-adfree-win-setup.${ext}"
     },
     "portable": {
-      "artifactName": "UnblockPro-${version}-win-portable.${ext}"
+      "artifactName": "UnblockPro-${version}-adfree-win-portable.${ext}"
     },
     "publish": [
       {
