@@ -176,9 +176,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.prepare.outputs.version }}
-          name: UnblockPro v${{ needs.prepare.outputs.version }}
+          name: UnblockPro AdFree v${{ needs.prepare.outputs.version }}
           body: |
-            ## UnblockPro v${{ needs.prepare.outputs.version }}
+            ## UnblockPro AdFree v${{ needs.prepare.outputs.version }}
             
             ### Скачать
             
