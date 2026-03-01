@@ -1,6 +1,6 @@
 {
   "name": "unblock-pro",
-  "version": "2.0.15-adfree",
+  "version": "2.0.15",
   "description": "Обход блокировок Discord и YouTube в России — автоматический DPI bypass для macOS и Windows (adfree fork)",
   "main": "src/main/main.js",
   "scripts": {
